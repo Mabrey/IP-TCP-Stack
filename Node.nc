@@ -8,13 +8,8 @@
 
 typedef struct neighbor                 //create neighbor struct 
 {				
-<<<<<<< HEAD
-	nx_uint8_t node;
-	nx_uint8_t age;
-=======
 	uint8_t node;
 	uint8_t age;
->>>>>>> Project-debug
 } neighbor;
 
 module Node{
@@ -23,17 +18,11 @@ module Node{
    uses interface Receive;
    uses interface SimpleSend as Sender;
    uses interface CommandHandler;
-<<<<<<< HEAD
-   uses interface List<neighbor *> as neighborList;			//tracks neighbors
-   uses interface List<pack> as packList;					//tracks seen and sent packets
-   uses interface Timer<TMilli> as NodeTimer;
-=======
    uses interface List<neighbor*> as neighborList;			//tracks neighbors
    uses interface List<pack> as packList;					//tracks seen and sent packets
    uses interface Pool<neighbor> as neighborPool;
    uses interface Timer<TMilli> as NodeTimer;
    uses interface Random as Random;
->>>>>>> Project-debug
 }
 
 implementation{
@@ -45,20 +34,11 @@ implementation{
    void pushPackList(pack package);
    bool packMatch(pack *package);
    void findNeighbors();
-<<<<<<< HEAD
-   void printNeighbors();
-
-=======
    void printNeighbor();
->>>>>>> Project-debug
 
    event void Boot.booted(){
        uint16_t seed, start;
       call AMControl.start();
-<<<<<<< HEAD
-      dbg(GENERAL_CHANNEL, "Booted\n");
-      call NodeTimer.startPeriodic(1000)
-=======
 
         start = call Random.rand16()%1000;  
         seed = call Random.rand16()%1500 + start;
@@ -66,7 +46,6 @@ implementation{
       dbg(GENERAL_CHANNEL, "Booted\n");
    
        call NodeTimer.startPeriodicAt(start, seed+10000);
->>>>>>> Project-debug
    }
 
    event void AMControl.startDone(error_t err){
@@ -224,19 +203,6 @@ implementation{
       memcpy(Package->payload, payload, length);
    }
 
-<<<<<<< HEAD
-    void pushPack(pack Package) 
-    {
-        if(call packList.isFull())          //added check full to limit total packets held onto, and make sure enough space is allocated before pushing new packet on list
-        {
-            call packList.popfront();
-        }
-        call packList.pushback(Package);
-    }
-
-    bool packMatch(pack *packet)		//test if packet matches src
-   {
-=======
    void pushPackList(pack Package) 
     {
         if(call packList.isFull())          //added check full to limit total packets held onto, and make sure enough space is allocated before pushing new packet on list
@@ -250,18 +216,12 @@ implementation{
 
     bool packMatch(pack *packet)		//test if packet matches src
     {
->>>>>>> Project-debug
 		nx_uint8_t i, size;
 		pack seenPacket;                //create packet to pull from list
 		size = call packList.size();
 
-<<<<<<< HEAD
-		if (size == 0)
-			dbg(GENERAL_CHANNEL, "No packets in list");     //if no packets in list, no need to compare. It's a new packet, return false
-=======
 		if (size == 0) {}
 			//dbg(GENERAL_CHANNEL, "No packets in list\n");     //if no packets in list, no need to compare. It's a new packet, return false
->>>>>>> Project-debug
 	
 		else 
 		{
@@ -271,26 +231,13 @@ implementation{
 				if (seenPacket.src == packet->src && 
 					seenPacket.dest == packet->dest &&
 					seenPacket.seq == packet->seq)
-<<<<<<< HEAD
-=======
                     //dbg("general", "packet match\n");
->>>>>>> Project-debug
 					return TRUE;                            //if packet is a match, return true
 			}
 		}
 		return FALSE;
 	}
 
-<<<<<<< HEAD
-   void findNeighbors()					//look for neighbor nodes
-   {
-		
-   
-   
-   }
-
-   void printNeighbor()
-=======
     void findNeighbors()					//look for neighbor nodes
     {
         char* message = "Hey!\n";
@@ -321,7 +268,6 @@ implementation{
     }
 
     void printNeighbor()
->>>>>>> Project-debug
    {
 		nx_uint8_t size, i; 
 		size = call neighborList.size();
@@ -331,17 +277,10 @@ implementation{
 			for (i = 0; i < size; i++)
 			{
 				neighbor* neighbor_prt = call neighborList.get(i);
-<<<<<<< HEAD
-				dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d", TOS_NODE_ID, neighbor_prt->node, neighbor_prt->age);		
-			}
-		}
-		else dbg(GENERAL_CHANNEL, "No Neighbors");
-=======
 				dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d\n", TOS_NODE_ID, neighbor_prt->node, neighbor_prt->age);		
 			}
 		}
 		else dbg(GENERAL_CHANNEL, "No Neighbors\n");
->>>>>>> Project-debug
    
    }
 }
