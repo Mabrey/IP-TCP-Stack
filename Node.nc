@@ -10,7 +10,13 @@ typedef struct neighbor                 //create neighbor struct
 {				
 	uint8_t node;
 	uint8_t age;
+    uint8_t cost;
 } neighbor;
+
+typedef struct mapNeighbors
+{
+    uint8_t cost[20]
+}mapNeighbors;
 
 module Node{
    uses interface Boot;
@@ -26,8 +32,10 @@ module Node{
 }
 
 implementation{
+   
    pack sendPackage;
    uint16_t seqCount = 0;
+   mapNeighbors mapNeighbors[20];
 
    // Prototypes
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -279,6 +287,13 @@ implementation{
 			}
 		}
 		else dbg(GENERAL_CHANNEL, "No Neighbors\n");
-   
+   }
+
+   lspShareNeighbor()
+   {
+       uint16_t dest;
+       int i;
+       uint8_t lspCostList[20] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,-1, -1, -1, -1, -1,-1, -1, -1, -1, -1};
+       call initializeMap(&lspMap)
    }
 }
