@@ -126,7 +126,7 @@ class TestSim:
 
 def main():
     s = TestSim();
-    s.runTime(10);
+    s.runTime(20);
     s.loadTopo("long_line.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
@@ -135,11 +135,25 @@ def main():
     s.addChannel(s.NEIGHBOR_CHANNEL);
     s.addChannel(s.FLOODING_CHANNEL);
 
-    s.runTime(20);
+    s.runTime(30);
     s.ping(1, 19, "Hello, World");
     s.runTime(10);
     s.ping(1, 4, "Hi!");
     s.runTime(20);
+    s.ping(5, 7, "Helloooo!");
+    s.runTime(20); #runtime correspons to piing under it
+    s.ping(9, 2, "WOOOOW!");
+    s.runTime(20);
+    s.ping(19, 1, "HEEEE!");
+    s.runTime(20);
+    s.ping(19, 6, "AAAAAAA!");
+    s.runTime(8);
+    s.ping(2, 3, "GGGGGG!");
+    s.runTime(7);
+    s.ping(5, 9, "SSSSSSS!");
+    s.runTime(1);
+    s.ping(11, 13, "POKEEERR!");
+    s.runTime(2);
 
 if __name__ == '__main__':
     main()
