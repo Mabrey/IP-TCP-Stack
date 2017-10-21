@@ -57,10 +57,13 @@ implementation{
    }
 
    event void AMControl.startDone(error_t err){
-      if(err == SUCCESS){
+      if(err == SUCCESS)
+      {
          dbg(GENERAL_CHANNEL, "Radio On\n");
-         call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
-      }else{
+         //call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
+         findNeighbors();
+      }
+      else{
          //Retry until successful
          call AMControl.start();
       }
