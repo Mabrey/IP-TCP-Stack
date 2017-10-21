@@ -60,8 +60,8 @@ implementation{
       if(err == SUCCESS)
       {
          dbg(GENERAL_CHANNEL, "Radio On\n");
-         //call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
-         findNeighbors();
+         call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
+         //findNeighbors();
       }
       else{
          //Retry until successful
@@ -209,7 +209,22 @@ implementation{
       call Sender.send(sendPackage, AM_BROADCAST_ADDR);
    }
 
-   event void CommandHandler.printNeighbors(){}
+   event void CommandHandler.printNeighbors()
+   {
+        uint8_t size, i;  
+        dbg(GENERAL_CHANNEL, "PRINT NEIGHBOR EVENT\n");
+		size = call neighborList.size();
+
+	    if(call neighborList.isEmpty() == FALSE)			//check neighbor list isnt empty
+		{
+			for (i = 0; i < size; i++)
+			{
+				neighbor neighbor_ptr = call neighborList.get(i);
+				dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d\n", TOS_NODE_ID, neighbor_ptr.node, neighbor_ptr.age);		
+			}
+		}
+		else dbg(GENERAL_CHANNEL, "No Neighbors\n");
+   }
 
    event void CommandHandler.printRouteTable(){}
 

@@ -126,7 +126,7 @@ class TestSim:
 
 def main():
     s = TestSim();
-    s.runTime(20);
+    s.runTime(30);
     s.loadTopo("long_line.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
@@ -135,7 +135,7 @@ def main():
     s.addChannel(s.NEIGHBOR_CHANNEL);
     s.addChannel(s.FLOODING_CHANNEL);
 
-    s.runTime(30);
+    s.runTime(200);
     s.ping(1, 19, "Hello, World");
     s.runTime(10);
     s.ping(1, 4, "Hi!");
@@ -153,7 +153,47 @@ def main():
     s.ping(5, 9, "SSSSSSS!");
     s.runTime(1);
     s.ping(11, 13, "POKEEERR!");
+    s.runTime(500);
+    s.neighborDMP(1);
     s.runTime(2);
+    s.neighborDMP(2);
+    s.runTime(2);
+    s.neighborDMP(3);
+    s.runTime(2);
+    s.neighborDMP(4);
+    s.runTime(2);
+    s.neighborDMP(5);
+    s.runTime(2);
+    s.neighborDMP(6);
+    s.runTime(2);
+    s.neighborDMP(7);
+    s.runTime(2);
+    s.neighborDMP(8);
+    s.runTime(2);
+    s.neighborDMP(9);
+    s.runTime(2);
+    s.neighborDMP(10);
+    s.runTime(2);
+    s.neighborDMP(11);
+    s.runTime(2);
+    s.neighborDMP(12);
+    s.runTime(2);
+    s.neighborDMP(13);
+    s.runTime(2);
+    s.neighborDMP(14);
+    s.runTime(2);
+    s.neighborDMP(15);
+    s.runTime(2);
+    s.neighborDMP(16);
+    s.runTime(2);
+    s.neighborDMP(17);
+    s.runTime(2);
+    s.neighborDMP(18);
+    s.runTime(2);
+    s.neighborDMP(19);
+    s.runTime(100);
+    s.neighborDMP(3);
+    s.runTime(10);
 
 if __name__ == '__main__':
     main()
