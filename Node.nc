@@ -5,6 +5,9 @@
 #include "includes/CommandMsg.h"
 #include "includes/sendInfo.h"
 #include "includes/channels.h"
+#include "includes/Map.h"
+#include "includes/LSRouting.h"
+#define baseTimer 4000
 
 typedef struct neighbor                 //create neighbor struct 
 {				
@@ -12,11 +15,6 @@ typedef struct neighbor                 //create neighbor struct
 	uint8_t age;
     uint8_t cost;
 } neighbor;
-
-typedef struct mapNeighbors
-{
-    uint8_t cost[20]
-}mapNeighbors;
 
 module Node{
    uses interface Boot;
@@ -28,6 +26,7 @@ module Node{
    uses interface List<pack> as packList;					//tracks seen and sent packets
    uses interface Pool<neighbor> as neighborPool;
    uses interface Timer<TMilli> as NodeTimer;
+   uses interface Timer<TMilli> as lspShareTimer;
    uses interface Random as Random;
 }
 
@@ -35,7 +34,9 @@ implementation{
    
    pack sendPackage;
    uint16_t seqCount = 0;
-   mapNeighbors mapNeighbors[20];
+   routingTable tentative;      //possible routing table indexes
+   routingTable confirmed;      //confirmed table indexes after dijkstra
+   map mapNeighbors[20];
 
    // Prototypes
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -43,22 +44,20 @@ implementation{
    bool packMatch(pack *package);
    void findNeighbors();
    void printNeighbor();
+   void lspShareNeighbor();
 
    event void Boot.booted(){
-       uint16_t seed, start;
-      call AMControl.start();
-
-        start = call Random.rand16()%1000;  
-        seed = call Random.rand16()%1500 + start;
-      
+      call AMControl.start();      
       dbg(GENERAL_CHANNEL, "Booted\n");
    
-       call NodeTimer.startPeriodicAt(start, seed+10000);
+       //call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%300);
+      // call lspShareTimer.startPeriodic(baseTimer + call Random.rand16()%300);
    }
 
    event void AMControl.startDone(error_t err){
       if(err == SUCCESS){
          dbg(GENERAL_CHANNEL, "Radio On\n");
+         call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
       }else{
          //Retry until successful
          call AMControl.start();
@@ -67,6 +66,10 @@ implementation{
 
    event void NodeTimer.fired(){
        findNeighbors();
+   }
+
+   event void lspShareTimer.fired(){
+       lspShareNeighbor();
    }
 
    event void AMControl.stopDone(error_t err){}
@@ -128,19 +131,36 @@ implementation{
                         }
 
                     }
+
+                    //if the packet is made for sharing neighbors
+                    else if(myMsg -> protocol == PROTOCOL_LSP)
+                    {
+                        uint8_t i;
+                        initializeMap(mapNeighbors, myMsg->src);
+                        for(i = 0; i < 20; i++)
+                        {
+                            mapNeighbors[myMsg->src].hopCost[i] == myMsg->payload[i];
+                            if (mapNeighbors[myMsg->src].hopCost[i] > 0)
+                                dbg(GENERAL_CHANNEL, "Printing out src:%d neighbor:%d  cost:%d \n", myMsg->src, i , myMsg->payload[i]);
+                        }
+                        makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t *) myMsg->payload, 20);
+                        pushPackList(sendPackage);
+                        call Sender.send(sendPackage, myMsg->src);
+                    }
+
                 }
                 else if (myMsg->dest == TOS_NODE_ID)        //the destination of the packet matches you
                 {                                          
                     if (myMsg->protocol == PROTOCOL_PING)     //if message was ping, the source wants a reply
                     {
-                    dbg("flooding", "Packet has arrived to final destination. Current Node: %d, Source Node: %d \nPacket Message: %d\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                    dbg("flooding", "Packet has arrived to final destination. Current Node: %d, Source Node: %d \nPacket Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
                         //save the packet 
-                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);
 
                         //make reply packet back to the source
-                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 255, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 2, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         seqCount++;
                         pushPackList(sendPackage);
                         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
@@ -274,7 +294,7 @@ implementation{
     }
 
     void printNeighbor()
-   {
+    {
 		nx_uint8_t size, i; 
 		size = call neighborList.size();
 
@@ -287,13 +307,30 @@ implementation{
 			}
 		}
 		else dbg(GENERAL_CHANNEL, "No Neighbors\n");
-   }
+    }
 
-   lspShareNeighbor()
-   {
-       uint16_t dest;
-       int i;
-       uint8_t lspCostList[20] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,-1, -1, -1, -1, -1,-1, -1, -1, -1, -1};
-       call initializeMap(&lspMap)
-   }
+
+    void lspShareNeighbor()
+    {
+        uint16_t dest;
+        int i;
+        neighbor* neighbor_ptr;
+        uint8_t costList[20];
+        for (i = 0; i < 20; i++)
+            costList[i] = -1;
+ 
+        initializeMap(mapNeighbors, TOS_NODE_ID);
+
+        for(i = 0; i < call neighborList.size(); i++)
+        {
+            neighbor_ptr = call neighborList.get(i);
+            costList[neighbor_ptr -> node] = 1;
+            mapNeighbors[TOS_NODE_ID].hopCost[neighbor_ptr -> node] = 1;
+        }
+
+        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 32, PROTOCOL_LSP, seqCount, (uint8_t*) costList, 20);
+        seqCount++;
+        pushPackList(sendPackage);
+        call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+    }
 }

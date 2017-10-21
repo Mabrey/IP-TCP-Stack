@@ -18,12 +18,14 @@ implementation {
     components Node;
     components new AMReceiverC(AM_PACK) as GeneralReceive;
     components new TimerMilliC() as NodeTimerC;
+    components new TimerMilliC() as lspShareTimerC;
 
     Node -> MainC.Boot;
 
     Node.Receive -> GeneralReceive;
 
     Node.NodeTimer-> NodeTimerC;
+    Node.lspShareTimer -> lspShareTimerC;
 
     components ActiveMessageC;
     Node.AMControl -> ActiveMessageC;
