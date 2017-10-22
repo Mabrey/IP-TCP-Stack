@@ -7,7 +7,7 @@
 #include "includes/channels.h"
 #include "includes/Map.h"
 #include "includes/LSRouting.h"
-#define baseTimer 4000
+#define baseTimer 10000
 
 typedef struct neighbor                 //create neighbor struct 
 {				
@@ -47,6 +47,7 @@ implementation{
    void findNeighbors();
    void printNeighbor();
    void lspShareNeighbor();
+    bool containNeighbor(uint16_t potential);
 
    event void Boot.booted(){
       call AMControl.start();      
@@ -60,7 +61,7 @@ implementation{
       if(err == SUCCESS)
       {
          dbg(GENERAL_CHANNEL, "Radio On\n");
-         call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%200);
+         call NodeTimer.startPeriodic(baseTimer + call Random.rand16()%300);
          //findNeighbors();
       }
       else{
@@ -112,17 +113,10 @@ implementation{
                         Neighbor_in_List = FALSE;                       //assume you don't know this neighbor
                         size = call neighborList.size();
 
-                        for (i = 0; i < size; i++)                      //check all neighbors in your list for a match
+                        if (containNeighbor(myMsg->src))
                         {
-                            neighbor_ptr = call neighborList.get(i);
-                            
-                            if(neighbor_ptr.node == myMsg->src)       //if they match, set bool to true and update age
-                            {
-                                neighbor_ptr.age = 0;
-                                Neighbor_in_List = TRUE;
-                               // dbg("neighbor", "I know this neighbor\n");
-                            }
-                        } 
+                            Neighbor_in_List = TRUE;
+                        }
 
                         if(Neighbor_in_List == FALSE)                   //if you dont recognize the neighbor, add them to the list.
                         {
@@ -311,8 +305,26 @@ implementation{
                             //create a package to get ready to send for neighbor discovery
         makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 2, PROTOCOL_PING, seqCount, (uint8_t*) message, (uint8_t) sizeof(message));
         pushPackList(sendPackage);
+        seqCount++;
 
         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+    }
+
+    bool containNeighbor(uint16_t potential)
+    {
+        int i = 0;
+        int size = call neighborList.size();
+        neighbor* neighborCheck;
+        for(i = 0; i < size; i++)
+        {
+            neighborCheck = call neighborList.get(i);
+            if (potential == neighborCheck->node)
+            {
+                neighborCheck->age = 0;
+                return TRUE;
+            }
+        }
+        return FALSE;
     }
 
     void printNeighbor()

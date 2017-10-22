@@ -95,8 +95,8 @@ implementation{
 		return size;
 	}
 
-	command t List.get(uint16_t position){
-		return container[position];
+	command t* List.get(uint16_t position){
+		return &container[position];
 	}
 
 	command t List.remove(uint8_t position)
