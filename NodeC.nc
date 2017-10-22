@@ -39,11 +39,11 @@ implementation {
     components new ListC(pack,64) as packListC;            //create a list for packets
     Node.packList->packListC;
    
-    components new ListC(neighbor*,64) as neighborListC;   //create a list for neighbors
-    Node.neighborList->neighborListC;
+    //components new ListC(neighbor*,64) as neighborListC;   //create a list for neighbors
+   // Node.neighborList->neighborListC;
 
-    components new PoolC(neighbor, 64) as neighborPoolC;
-    Node.neighborPool -> neighborPoolC;
+   // components new PoolC(neighbor, 64) as neighborPoolC;
+   // Node.neighborPool -> neighborPoolC;
 
     components RandomC as Random;
     Node.Random -> Random;

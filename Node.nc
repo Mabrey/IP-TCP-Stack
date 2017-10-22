@@ -17,7 +17,15 @@ typedef struct neighbor                 //create neighbor struct
 {				
 	uint8_t node;
 	uint8_t age;
+    bool inList;
 } neighbor;
+
+typedef struct neighborhood
+{
+    neighbor neighbor[20];
+    int size;
+}neighborhood;
+
 
 module Node{
    uses interface Boot;
@@ -25,9 +33,9 @@ module Node{
    uses interface Receive;
    uses interface SimpleSend as Sender;
    uses interface CommandHandler;
-   uses interface List<neighbor*> as neighborList;			//tracks neighbors
+   //uses interface List<neighbor*> as neighborList;			//tracks neighbors
    uses interface List<pack> as packList;					//tracks seen and sent packets
-   uses interface Pool<neighbor> as neighborPool;
+  // uses interface Pool<neighbor> as neighborPool;
    uses interface Timer<TMilli> as NodeTimer;
    uses interface Random as Random;
 }
@@ -35,30 +43,34 @@ module Node{
 implementation{
    pack sendPackage;
    uint16_t seqCount = 0;
+   neighborhood neighborList;
 
    // Prototypes
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
    void pushPackList(pack package);
    bool packMatch(pack *package);
    void findNeighbors();
+   void initNeighborList();
    void printNeighbor();
+   bool containNeighbor(int node);
 
    event void Boot.booted(){
-       uint16_t seed, start;
-      call AMControl.start();
+        //dbg(GENERAL_CHANNEL, "Booted\n");
+        uint16_t start;
+        call AMControl.start();
 
-        start = call Random.rand16()%1000;  
-        seed = call Random.rand16()%1500 + start;
-      
-      dbg(GENERAL_CHANNEL, "Booted\n");
-   
-       call NodeTimer.startPeriodicAt(start, seed+10000);
+        start = TOS_NODE_ID*2000;  
+        call NodeTimer.startOneShot(start);
    }
 
    event void AMControl.startDone(error_t err){
-      if(err == SUCCESS){
-         dbg(GENERAL_CHANNEL, "Radio On\n");
-      }else{
+      if(err == SUCCESS)
+      {
+         //dbg(GENERAL_CHANNEL, "Radio On\n");
+         initNeighborList();
+      }
+      else
+      {
          //Retry until successful
          call AMControl.start();
       }
@@ -67,87 +79,81 @@ implementation{
    event void AMControl.stopDone(error_t err){}
    event void NodeTimer.fired(){
        findNeighbors();
+       call NodeTimer.startPeriodic(2000000);
    }
 
    event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
+        pack* myMsg=(pack*) payload;
+        //dbg("neighbor", "Packet Received from %d\n", myMsg->src);
         if(len==sizeof(pack))
         {
-             pack* myMsg=(pack*) payload;												//payload becomes MyMsg
-             neighbor* Neighbor, *neighbor_ptr;
-
-		    if (myMsg->TTL != 0 && !packMatch(myMsg))									//check if packet is expired or if we've already seen it. 
-		    {								
-		    //dbg("neighbor", "Packet Already seen/dead\n");  //if packet is expired or already seen, we can drop it.
-                if (myMsg->dest == AM_BROADCAST_ADDR)      //if using AMBA, then neighbor is broadcasting to all neighbors
+            // neighbor* Neighbor, *neighbor_ptr;
+             //check if packet is expired or if we've already seen it.
+		    if (myMsg->TTL != 0 && !packMatch(myMsg))									 
+		    {	
+                //since we didnt match before, add it to list
+                makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                pushPackList(sendPackage);							
+		        //dbg("neighbor", "Packet Already seen/dead\n");  
+                //if using AMBA, then neighbor is broadcasting to all neighbors
+                if (myMsg->dest == AM_BROADCAST_ADDR)      
                 {
-                    dbg("neighbor", "Packet Received from %d\n", myMsg->src);
-                    logPack(myMsg);
-                    makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
-                    pushPackList(sendPackage);
-
-                    if (myMsg->protocol == PROTOCOL_PING)       //if broadcast was ping, neighbor is trying to search for new neighbors or keep in touch with old ones.
+                    //dbg("neighbor", "Packet Received from %d\n", myMsg->src);
+                    //logPack(myMsg);
+                    //if broadcast was ping, neighbor is trying to search for new neighbors or keep in touch with old ones.
+                    //send them a reply to add you to their list
+                    if (myMsg->protocol == PROTOCOL_PING)      
                     {
-                        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, myMsg->TTL - 1, PROTOCOL_PINGREPLY, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 1, PROTOCOL_PINGREPLY, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));                     
                         pushPackList(sendPackage);
-                        dbg("neighbor", "Sending packet reply to %d\n", myMsg -> src);
+                        seqCount++;
+                        dbg("neighbor", "Sending Ping Reply to %d\n", myMsg -> src);
                         call Sender.send(sendPackage,myMsg->src);   //send back to source
                     }
 
-                    else if (myMsg->protocol == PROTOCOL_PINGREPLY)      //if broadcast was ping reply, neighbor is updating their existance.
-                    {                                                      //Check if they are in your neighbor list and set age to Zero.
-                        bool Neighbor_in_List;
-                        uint8_t size, i;
-                        
-                        Neighbor_in_List = FALSE;                       //assume you don't know this neighbor
-                        size = call neighborList.size();
+                    //if broadcast was ping reply, neighbor is updating their existance.
+                    else if (myMsg->protocol == PROTOCOL_PINGREPLY)     
+                    {                                                    
+                        dbg("neighbor", "Ping Reply from %d\n", myMsg -> src);
 
-                        for (i = 0; i < size; i++)                      //check all neighbors in your list for a match
-                        {
-                            neighbor_ptr = call neighborList.get(i);
-                            
-                            if(neighbor_ptr-> node == myMsg->src)       //if they match, set bool to true and update age
-                            {
-                                neighbor_ptr -> age = 0;
-                                Neighbor_in_List = TRUE;
-                                dbg("neighbor", "I know this neighbor");
-                            }
-                        } 
+                        //if we've seen this neighbor before, reset their age
+                        if(containNeighbor(myMsg->src))       
+                        {    
+                                neighborList.neighbor[myMsg->src].age = 0;
+                                dbg("neighbor", "I know this neighbor\n");
+                        }    
 
-                        if(Neighbor_in_List == FALSE)                   //if you dont recognize the neighbor, add them to the list.
+                        //if you dont recognize the neighbor, add them to the list.
+                        else                  
                         {
-                            dbg("general", "Neighbor added to list\n");
-                            dbg("general", "Source: %d\n", myMsg->src);
-                            Neighbor = call neighborPool.get();
-                            Neighbor->node = myMsg->src;
-                            Neighbor-> age = 0;
-                            call neighborList.pushback(Neighbor);
-                            printNeighbor();
+                            dbg("general", "Neighbor %d added to list\n", myMsg -> src);
+                            neighborList.neighbor[myMsg->src].age = 0;
+                            neighborList.neighbor[myMsg->src].node = myMsg-> src;
+                            neighborList.neighbor[myMsg->src].inList = TRUE;
+                            neighborList.size += 1;
+                    
+                            //printNeighbor();
                         }
 
                     }
                 }
-                else if (myMsg->dest == TOS_NODE_ID)        //the destination of the packet matches you
+                else if (myMsg->dest == TOS_NODE_ID)        //the destination of the packet matches you, NOT DISCOVERY!
                 {                                          
                     if (myMsg->protocol == PROTOCOL_PING)     //if message was ping, the source wants a reply
                     {
-                    dbg("flooding", "Packet has arrived to final destination. Current Node: %d, Source Node: %d \nPacket Message: %d\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
-
-                        //save the packet 
-                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
-                        pushPackList(sendPackage);
+                    dbg("flooding", "Packet has arrived to final destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
                         //make reply packet back to the source
-                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 255, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
-                        seqCount++;
+                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);
+                        seqCount++;
                         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
                     }
                     else if (myMsg->protocol == PROTOCOL_PINGREPLY)   
                     {  //if message was a reply, you pinged it and recieved the ack.
-                        dbg("flooding", "Packet reply recieved! Current Node: %d, Source Node: %d \nPacket Message: %d\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
-
-                            //save the packet 
-                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        dbg("flooding", "Packet reply recieved! Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                        //save the packet 
+                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);               
                     }
                 }
@@ -181,7 +187,9 @@ implementation{
       call Sender.send(sendPackage, AM_BROADCAST_ADDR);
    }
 
-   event void CommandHandler.printNeighbors(){}
+   event void CommandHandler.printNeighbors(){
+      printNeighbor();
+   }
 
    event void CommandHandler.printRouteTable(){}
 
@@ -233,7 +241,8 @@ implementation{
 				seenPacket = call packList.get(i);
 				if (seenPacket.src == packet->src && 
 					seenPacket.dest == packet->dest &&
-					seenPacket.seq == packet->seq)
+					seenPacket.seq == packet->seq &&
+                    seenPacket.protocol == packet->protocol)
                     //dbg("general", "packet match\n");
 					return TRUE;                            //if packet is a match, return true
 			}
@@ -244,47 +253,62 @@ implementation{
     void findNeighbors()					//look for neighbor nodes
     {
         char* message = "Hey!\n";
-
-        if (call neighborList.isEmpty() == FALSE)       //first check the list isn't empty
+        int i;
+        if (neighborList.size > 0)       //first check the list isn't empty
         {
-            uint8_t size, age, i;
-            neighbor* neighbor_prt, *neighborRemoved;  
-            size = call neighborList.size();
-
-            for (i = 0; i < size; i++)      //update the age of the neighbors
-            {             
-                neighbor_prt = call neighborList.get(i);
-                neighbor_prt->age += 1;      //add one to age
-                if (neighbor_prt->age > 10)        //if older than 10, remove from list
-                {
-                    neighborRemoved = call neighborList.remove(i);
-                    call neighborPool.put(neighborRemoved);
-                    i--;
-                    size--;
+            for (i = 0; i < 20; i++)      //update the age of the neighbors
+            {   
+                if (neighborList.neighbor[i].inList == TRUE)          
+                { 
+                    neighborList.neighbor[i].age += 1;      //add one to age
+                    if (neighborList.neighbor[i].age > 5)        //if older than 10, remove from list
+                    {
+                        neighborList.neighbor[i].age = 0;
+                        neighborList.neighbor[i].node = 0;
+                        neighborList.size -= 1;
+                    }
                 }
             }
          }
      
                             //create a package to get ready to send for neighbor discovery
-        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 2, PROTOCOL_PING, 0, (uint8_t*) message, (uint8_t) sizeof(message));
+        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 2, PROTOCOL_PING, seqCount, (uint8_t*) message, (uint8_t) sizeof(message));
         pushPackList(sendPackage);
+        seqCount++;
         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+    }
+
+    void initNeighborList()
+    {
+        int i;
+        for(i = 0; i < 20; i++)
+        {
+            neighborList.neighbor[i].node = -1;
+            neighborList.neighbor[i].age = -1;
+            neighborList.neighbor[i].inList = FALSE;
+        }
+        neighborList.size = 0;
     }
 
     void printNeighbor()
    {
-		nx_uint8_t size, i; 
-		size = call neighborList.size();
+		int i;
+        if (neighborList.size == 0)
+        {
+            dbg(GENERAL_CHANNEL, "No Neighbors\n");
+            return;
+        }
 
-	   if(call neighborList.isEmpty() == FALSE)			//check neighbor list isnt empty
-		{
-			for (i = 0; i < size; i++)
-			{
-				neighbor* neighbor_prt = call neighborList.get(i);
-				dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d\n", TOS_NODE_ID, neighbor_prt->node, neighbor_prt->age);		
-			}
-		}
-		else dbg(GENERAL_CHANNEL, "No Neighbors\n");
-   
+        for(i = 0; i < 20; i++)
+        {
+            if (neighborList.neighbor[i].inList)
+                dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d\n", TOS_NODE_ID, neighborList.neighbor[i].node, neighborList.neighbor[i].age);
+        }
+        return;
    }
+
+    bool containNeighbor(int node)
+    {
+        return neighborList.neighbor[node].inList;
+    }
 }
