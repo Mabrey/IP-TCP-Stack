@@ -18,14 +18,14 @@ implementation {
     components Node;
     components new AMReceiverC(AM_PACK) as GeneralReceive;
     components new TimerMilliC() as NodeTimerC;
-    components new TimerMilliC() as lspShareTimerC;
+    //components new TimerMilliC() as lspShareTimerC;
 
     Node -> MainC.Boot;
 
     Node.Receive -> GeneralReceive;
 
     Node.NodeTimer-> NodeTimerC;
-    Node.lspShareTimer -> lspShareTimerC;
+  //  Node.lspShareTimer -> lspShareTimerC;
 
     components ActiveMessageC;
     Node.AMControl -> ActiveMessageC;
@@ -39,8 +39,11 @@ implementation {
     components new ListC(pack,64) as packListC;            //create a list for packets
     Node.packList->packListC;
    
-    components new ListC(neighbor,64) as neighborListC;   //create a list for neighbors
+    components new ListC(neighbor*,64) as neighborListC;   //create a list for neighbors
     Node.neighborList->neighborListC;
+
+    components new PoolC(neighbor, 64) as neighborPoolC;
+    Node.neighborPool -> neighborPoolC;
 
     components RandomC as Random;
     Node.Random -> Random;
