@@ -127,7 +127,7 @@ class TestSim:
 def main():
     s = TestSim();
     s.runTime(100);
-    s.loadTopo("example.topo");
+    s.loadTopo("long_line.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
     s.addChannel(s.COMMAND_CHANNEL);
@@ -135,45 +135,7 @@ def main():
     s.addChannel(s.NEIGHBOR_CHANNEL);
     s.addChannel(s.FLOODING_CHANNEL);
 
-    s.runTime(10);
-    s.neighborDMP(1);
-    s.runTime(10);
-    s.neighborDMP(2);
-    s.runTime(10);
-    s.neighborDMP(3);
-    s.runTime(10);
-    s.neighborDMP(4);
-    s.runTime(10);
-    s.neighborDMP(5);
-    s.runTime(10);
-    s.neighborDMP(6);
-    s.runTime(10);
-    s.neighborDMP(7);
-    s.runTime(10);
-    s.neighborDMP(8);
-    s.runTime(10);
-    s.neighborDMP(9);
-    s.runTime(10);
-    #s.neighborDMP(10);
-    #s.runTime(10);
-    #s.neighborDMP(11);
-    #s.runTime(10);
-    #s.neighborDMP(12);
-    #s.runTime(10);
-    #s.neighborDMP(13);
-    #s.runTime(10);
-    #s.neighborDMP(14);
-    #s.runTime(10);
-    #s.neighborDMP(15);
-    #s.runTime(10);
-   # s.neighborDMP(16);
-  #  s.runTime(10);
-   # s.neighborDMP(17);
-   # s.runTime(10);
-   # s.neighborDMP(18);
-    #s.runTime(10);
-    #s.neighborDMP(19);
-    #s.runTime(10);
+    s.runTime(200);
     s.ping(1, 5, "I'm pinging here!");
     s.runTime(10)
     s.ping(6,9, "Hey");

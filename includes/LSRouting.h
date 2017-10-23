@@ -59,7 +59,7 @@ bool updateTableCost(routingTable* table, lspIndex ind, int hopCost)
     {
         if(table -> lspIndex[i].hopCost > hopCost && table -> lspIndex[i].dest == ind.dest)
         {
-            ind.hopCost = hopCost;
+            //ind.hopCost = hopCost;
             table -> lspIndex[i] = ind; 
             return TRUE;
         }
@@ -114,8 +114,7 @@ lspIndex popMinCostIndex(routingTable* tentative)
 //pass in a destination to find the next nodeID to hop to
 int findNextHop(routingTable* table, int dest)
 {
-    int i;
-    i = -1; //use -1 to determine if 
+    int i; 
     for (i = 0; i < table -> tableCount; i++)
     {
         if(table -> lspIndex[i].dest == dest)
@@ -138,9 +137,9 @@ bool doesTableDestMatch(routingTable* table, lspIndex ind)
 bool isTableEmpty(routingTable* table)
 {
     if (table->tableCount == 0)
-        return FALSE;
+        return TRUE;
 
-    return TRUE;
+    return FALSE;
 }
 
 //does the table contain the node

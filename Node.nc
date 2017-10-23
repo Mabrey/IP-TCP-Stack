@@ -12,20 +12,23 @@
 #include "includes/CommandMsg.h"
 #include "includes/sendInfo.h"
 #include "includes/channels.h"
+#include "includes/Map.h"
+#include "includes/LSRouting.h"
 
-typedef struct neighbor                 //create neighbor struct 
+//create neighbor struct 
+typedef struct neighbor                 
 {				
 	uint8_t node;
 	uint8_t age;
     bool inList;
 } neighbor;
 
-typedef struct neighborhood
+//struct to keep track of neighbors
+typedef struct neighborhood             
 {
     neighbor neighbor[20];
     int size;
 }neighborhood;
-
 
 module Node{
    uses interface Boot;
@@ -33,37 +36,58 @@ module Node{
    uses interface Receive;
    uses interface SimpleSend as Sender;
    uses interface CommandHandler;
-   //uses interface List<neighbor*> as neighborList;			//tracks neighbors
-   uses interface List<pack> as packList;					//tracks seen and sent packets
-  // uses interface Pool<neighbor> as neighborPool;
+   uses interface List<pack> as packList;					
    uses interface Timer<TMilli> as NodeTimer;
+   uses interface Timer<TMilli> as LSPNodeTimer;
+   uses interface Timer<TMilli> as dijkstraTimer;
    uses interface Random as Random;
 }
 
 implementation{
-   pack sendPackage;
-   uint16_t seqCount = 0;
-   neighborhood neighborList;
+        
+    //Project 1     
+    pack sendPackage;
+    uint16_t seqCount = 0;
+    neighborhood neighborList;
 
-   // Prototypes
-   void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
-   void pushPackList(pack package);
-   bool packMatch(pack *package);
-   void findNeighbors();
-   void initNeighborList();
-   void printNeighbor();
-   bool containNeighbor(int node);
+    //Project 2
+    map Map[20];
+    uint8_t cost[20];
+    routingTable confirmedTable;
+    routingTable tentativeTable;
 
-   event void Boot.booted(){
+    // Packet handling
+    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
+    void pushPackList(pack package);
+    bool packMatch(pack *package);
+
+    //Neighbor discovery
+    void findNeighbors();
+    void initNeighborList();
+    bool printNeighbor();
+    bool containNeighbor(int node);
+
+    //Routing 
+    void printMap();
+    void printCost(int node);
+    void lspShareNeighbor();
+    void dijkstra();
+    int findForwardDest(int dest);
+
+    event void Boot.booted(){
         //dbg(GENERAL_CHANNEL, "Booted\n");
-        uint16_t start;
+        uint16_t start, lspStart, dijkstraStart;
         call AMControl.start();
 
-        start = TOS_NODE_ID*2000;  
+        start = TOS_NODE_ID*2000; 
+        lspStart = TOS_NODE_ID*50000; 
+        dijkstraStart = TOS_NODE_ID * 1000000;
         call NodeTimer.startOneShot(start);
+        call LSPNodeTimer.startOneShot(lspStart);
+        call dijkstraTimer.startOneShot(dijkstraStart);
    }
 
-   event void AMControl.startDone(error_t err){
+    event void AMControl.startDone(error_t err){
       if(err == SUCCESS)
       {
          //dbg(GENERAL_CHANNEL, "Radio On\n");
@@ -76,13 +100,26 @@ implementation{
       }
    }
 
-   event void AMControl.stopDone(error_t err){}
-   event void NodeTimer.fired(){
+    event void AMControl.stopDone(error_t err){}
+    event void NodeTimer.fired(){
        findNeighbors();
-       call NodeTimer.startPeriodic(2000000);
+       call NodeTimer.startPeriodic(1000000);
    }
 
-   event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
+    event void LSPNodeTimer.fired(){
+        lspShareNeighbor();
+       // dbg(GENERAL_CHANNEL, "Firing LSP TIMER\n");
+        call LSPNodeTimer.startPeriodic(500000);
+    }
+
+    event void dijkstraTimer.fired(){
+        dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
+        dijkstra();
+       // dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
+        call dijkstraTimer.startPeriodic(500000);
+    }
+
+    event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
         pack* myMsg=(pack*) payload;
         //dbg("neighbor", "Packet Received from %d\n", myMsg->src);
         if(len==sizeof(pack))
@@ -134,8 +171,24 @@ implementation{
                     
                             //printNeighbor();
                         }
-
                     }
+                    
+                    //if broadcast was protocol_lsp, save the cost of node and pass it on
+                    else if (myMsg -> protocol == PROTOCOL_LSP)
+                    {
+                        int i;
+                       // dbg(GENERAL_CHANNEL, "updating cost map\n");
+                        for (i = 1; i < 20; i++) {  
+                            Map[myMsg->src].hopCost[i] = myMsg->payload[i];
+                           // dbg(GENERAL_CHANNEL, "Payload: %d , Map hopcost for %d: %d, i = %d\n", myMsg->payload[i], myMsg->src, Map[myMsg->src].hopCost[i], i );
+                        }
+                        makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        pushPackList(sendPackage);
+                        //printCost();
+                        //printMap();
+                        call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+                    }
+
                 }
                 else if (myMsg->dest == TOS_NODE_ID)        //the destination of the packet matches you, NOT DISCOVERY!
                 {                                          
@@ -157,13 +210,20 @@ implementation{
                         pushPackList(sendPackage);               
                     }
                 }
-    
+
                 else //packet isn't yours, pass it along
                 {
+                    int dest = myMsg->dest;
+                    dest = findForwardDest(dest);
+                    if (dest == 0)
+                    {
+                        dbg(GENERAL_CHANNEL, "No destination to pass to, must drop");
+                        return msg;
+                    }
                     dbg("flooding", "Passing message from %d meant for %d\n", myMsg->src, myMsg->dest);
                     makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                     pushPackList(sendPackage);
-                    call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+                    call Sender.send(sendPackage, dest);
                 }   
                 return msg;
             }
@@ -178,20 +238,23 @@ implementation{
     }    
            
 
-   event void CommandHandler.ping(uint16_t destination, uint8_t *payload){
-      dbg(GENERAL_CHANNEL, "PING EVENT \n");
-      makePack(&sendPackage, TOS_NODE_ID, destination, 64, PROTOCOL_PING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
-      seqCount++;
-      logPack(&sendPackage);
-      pushPackList(sendPackage);
-      call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+    event void CommandHandler.ping(uint16_t destination, uint8_t *payload){
+        int dest;
+        dest = findForwardDest(destination);
+        dbg(GENERAL_CHANNEL, "PING EVENT \n");
+        makePack(&sendPackage, TOS_NODE_ID, destination, 64, PROTOCOL_PING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
+        seqCount++;
+        logPack(&sendPackage);
+        pushPackList(sendPackage);
+
+        call Sender.send(sendPackage, dest);
    }
 
-   event void CommandHandler.printNeighbors(){
+    event void CommandHandler.printNeighbors(){
       printNeighbor();
    }
 
-   event void CommandHandler.printRouteTable(){}
+    event void CommandHandler.printRouteTable(){}
 
    event void CommandHandler.printLinkState(){}
 
@@ -221,8 +284,7 @@ implementation{
             //dbg("general", "list is full\n");
             call packList.popfront();
         }
-        call packList.pushback(Package);
-       
+        call packList.pushback(Package);    
     }
 
     bool packMatch(pack *packet)		//test if packet matches src
@@ -290,25 +352,156 @@ implementation{
         neighborList.size = 0;
     }
 
-    void printNeighbor()
+    bool printNeighbor()
    {
 		int i;
         if (neighborList.size == 0)
         {
             dbg(GENERAL_CHANNEL, "No Neighbors\n");
-            return;
+            return FALSE;
         }
 
         for(i = 0; i < 20; i++)
         {
             if (neighborList.neighbor[i].inList)
-                dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d\n", TOS_NODE_ID, neighborList.neighbor[i].node, neighborList.neighbor[i].age);
+                dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d, i = %d\n", TOS_NODE_ID, neighborList.neighbor[i].node, neighborList.neighbor[i].age, i);
         }
-        return;
+        return TRUE;
    }
 
     bool containNeighbor(int node)
     {
         return neighborList.neighbor[node].inList;
     }
+
+    void printMap()
+    {
+        int i, j;
+        dbg(GENERAL_CHANNEL, "Printing Map\n");
+        for (i = 1; i < 20; i++)
+        {
+            for (j = 1; j < 20; j++)
+            {
+                if(Map[i].hopCost[j] > 0)
+                    dbg(GENERAL_CHANNEL, "Src: %d, Dest: %d, Cost:%d\n", i, j, Map[i].hopCost[j]);
+            }
+        }
+    }
+
+    void printCost(int node)
+    {
+        int i;
+        dbg(GENERAL_CHANNEL, "Printing Cost List\n");
+        for (i = 0; i < 20; i++)
+            {
+                if(cost[i] > 0 && cost[i] != 255)
+                    dbg(GENERAL_CHANNEL, "Src: %d, Dest: %d, Cost:%d\n", node, i, cost[i]);
+            }
+    }
+
+    void printTable()
+    {
+        int i;
+        dbg(GENERAL_CHANNEL, "Printing Table\n");
+        for (i = 0; i < 20; i++)
+        {
+            dbg(GENERAL_CHANNEL, "Dest: %d, HopTo: %d, Cost:%d\n", confirmedTable.lspIndex[i].dest, confirmedTable.lspIndex[i].hopTo, confirmedTable.lspIndex[i].hopCost);  
+        }           
+    }
+
+    void lspShareNeighbor()
+    {
+        int i;
+        //initialize cost list
+        for(i = 0; i < 20; i++)
+            cost[i] = -1;
+        
+        for(i = 1; i < 20; i++)
+        {
+            if(neighborList.neighbor[i].inList == TRUE)
+            {
+                cost[i] = 1;
+                Map[TOS_NODE_ID].hopCost[i] = 1;
+            }
+            else if(i == TOS_NODE_ID)
+            {
+                cost[i] = 0;
+                Map[TOS_NODE_ID].hopCost[i] = 0;
+            }
+        }
+        if (printNeighbor())
+        {
+            printCost(TOS_NODE_ID);
+                            //create a package to get ready to send for neighbor discovery
+            makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 32, PROTOCOL_LSP, seqCount, (uint8_t*) cost, (uint8_t) sizeof(cost));
+            pushPackList(sendPackage);
+            seqCount++;
+            call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+        }
+        
+    }
+
+    void dijkstra()
+    {
+        
+        int i;
+        lspIndex Next, Temp;
+        printMap();
+        initializeTable(&confirmedTable);
+        initializeTable(&tentativeTable);
+
+        Next.dest = TOS_NODE_ID;
+        Next.hopTo = TOS_NODE_ID;
+        Next.hopCost = 0;
+        tablePushBack(&confirmedTable, Next);
+        /*
+        confirmedTable.lspIndex[TOS_NODE_ID].dest = TOS_NODE_ID;
+        confirmedTable.lspIndex[TOS_NODE_ID].hopTo = TOS_NODE_ID;
+        confirmedTable.lspIndex[TOS_NODE_ID].hopCost = 0;
+        Next = confirmedTable.lspIndex[TOS_NODE_ID];
+        */
+        //make next equal to current node, and expand its neighbors onto tentative list
+        
+        do
+        {
+            for (i = 0; i < 20; i++)
+            {
+                if (Map[Next.dest].hopCost[i] > 0)
+                {
+                    Temp.dest = i;
+                    if (Map[Next.dest].hopCost[i] == 1)
+                        Temp.hopTo = i;
+                    else Temp.hopTo = Next.hopTo;
+                    Temp.hopCost = Next.hopCost + Map[Next.dest].hopCost[i];
+                    dbg(GENERAL_CHANNEL, "Next.hopCost: %d, Map Hopcost: %d\n",Next.hopCost, Map[Next.dest].hopCost[i] );
+
+                    if(!doesTableContain(&confirmedTable,Temp.dest))
+                    {
+                        if(!doesTableContain(&tentativeTable, Temp.dest))
+                            tablePushBack(&tentativeTable, Temp);
+                        
+                        else 
+                        {
+                            if (getTableIndex(&tentativeTable, Temp.dest).hopCost > Temp.hopCost)
+                                updateTableCost(&tentativeTable, Temp, Temp.hopCost );
+                        }  
+                    }
+                }
+            }
+
+            Next = popMinCostIndex(&tentativeTable);
+            tablePushBack(&confirmedTable, Next);
+
+        } while(!isTableEmpty(&tentativeTable));
+
+        printTable();
+    }
+
+    int findForwardDest(int dest)
+    {
+        int forward;
+        forward = getTableIndex(&confirmedTable, dest).hopTo;   
+        return forward;  
+    }
+
 }
