@@ -227,6 +227,32 @@ implementation{
                         makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);               
                     }
+                    else if(myMsg->protocol == PROTOCOL_ROUTING)
+                    {
+
+                        int dest;
+                        dest = findForwardDest(myMsg->src);
+                        dbg("general", "Packet has arrived to routing destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+
+                        if (dest == 0)
+                        {
+                            dbg(GENERAL_CHANNEL, "No destination to pass to, must drop");
+                            return msg;
+                        }
+
+                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_ROUTINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        pushPackList(sendPackage);
+                        seqCount++;
+                        call Sender.send(sendPackage, dest);
+                    }
+
+                    else if(myMsg -> protocol == PROTOCOL_ROUTINGREPLY)
+                    {
+                       dbg("general", "Routing reply recieved! Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                        //save the packet 
+                        makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        pushPackList(sendPackage);   
+                    }
                 }
 
                 else //packet isn't yours, pass it along
@@ -260,7 +286,7 @@ implementation{
         int dest;
         dest = findForwardDest(destination);
         dbg(GENERAL_CHANNEL, "PING EVENT \n");
-        makePack(&sendPackage, TOS_NODE_ID, destination, 64, PROTOCOL_PING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
+        makePack(&sendPackage, TOS_NODE_ID, destination, 64, PROTOCOL_ROUTING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
         seqCount++;
         logPack(&sendPackage);
         pushPackList(sendPackage);
@@ -395,10 +421,13 @@ implementation{
     void printMap()
     {
         int i, j;
+        int size;
+        size = detectNetworkSize() + 1;
+        
         dbg(GENERAL_CHANNEL, "Printing Map\n");
-        for (i = 1; i < 20; i++)
+        for (i = 1; i < size; i++)
         {
-            for (j = 1; j < 20; j++)
+            for (j = 1; j < size; j++)
             {
                 //if(Map[i].hopCost[j] > 0)
                     dbg(GENERAL_CHANNEL, "Src: %d, Dest: %d, Cost:%d\n", i, j, Map[i].hopCost[j]);
@@ -419,9 +448,10 @@ implementation{
 
     void printTable()
     {
-        int i;
+        int i, size;
+        size = detectNetworkSize() + 1;
         dbg(GENERAL_CHANNEL, "Printing Table\n");
-        for (i = 1; i < 20; i++)
+        for (i = 1; i < size; i++)
         {
             dbg(GENERAL_CHANNEL, "Dest: %d, HopTo: %d, Cost:%d\n", confirmedTable.lspIndex[i].dest, confirmedTable.lspIndex[i].hopTo, confirmedTable.lspIndex[i].hopCost);  
         }           

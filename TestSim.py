@@ -138,9 +138,9 @@ def main():
     s.runTime(200);
     s.ping(1, 5, "I'm pinging here!");
     s.runTime(10)
-    s.ping(6,9, "Hey");
+    s.ping(9,1, "Hey");
     s.runTime(10);
-    s.ping(9,1, "Hola");
+    s.ping(2,8, "Hola");
     s.runTime(10);
 
 if __name__ == '__main__':
