@@ -7,10 +7,18 @@ typedef struct map{
     uint8_t hopCost[MAPSIZE];
 } map;
 
-void initializeMap(map* costMap, int nodeID){
-    int i;
+void initializeMap(map* costMap){
+    int i, j;
     for(i = 0; i < MAPSIZE; i++)
-        costMap[nodeID].hopCost[i] = -1;    
+    {
+        for (j = 0; j <MAPSIZE; j++)
+        {
+            if (i == j)
+                costMap[i].hopCost[j] = 0;
+            else
+                costMap[i].hopCost[j] = 255;    
+        }
+    }
 }
 
 #endif

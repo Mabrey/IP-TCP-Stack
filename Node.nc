@@ -55,6 +55,8 @@ implementation{
     uint8_t cost[20];
     routingTable confirmedTable;
     routingTable tentativeTable;
+    bool nodeFired = FALSE;
+    bool LSPFired = FALSE;
 
     // Packet handling
     void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -78,6 +80,7 @@ implementation{
         //dbg(GENERAL_CHANNEL, "Booted\n");
         uint16_t start, lspStart, dijkstraStart;
         call AMControl.start();
+         initializeMap(Map);
 
         start = TOS_NODE_ID*2000; 
         lspStart = TOS_NODE_ID*50000; 
@@ -101,22 +104,31 @@ implementation{
    }
 
     event void AMControl.stopDone(error_t err){}
+
     event void NodeTimer.fired(){
        findNeighbors();
-       call NodeTimer.startPeriodic(1000000);
+       nodeFired = TRUE;
+       call NodeTimer.startPeriodic(500000);
    }
 
     event void LSPNodeTimer.fired(){
-        lspShareNeighbor();
+        if (nodeFired)
+        {
+            lspShareNeighbor();
+            LSPFired = TRUE;
+        }
        // dbg(GENERAL_CHANNEL, "Firing LSP TIMER\n");
         call LSPNodeTimer.startPeriodic(500000);
     }
 
     event void dijkstraTimer.fired(){
-        dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
-        dijkstra();
+        if (LSPFired)
+        {
+            dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
+            dijkstra(); 
+        }
        // dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
-        call dijkstraTimer.startPeriodic(500000);
+        call dijkstraTimer.startPeriodic(1000000);
     }
 
     event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
@@ -178,8 +190,10 @@ implementation{
                     {
                         int i;
                        // dbg(GENERAL_CHANNEL, "updating cost map\n");
+
                         for (i = 1; i < 20; i++) {  
-                            Map[myMsg->src].hopCost[i] = myMsg->payload[i];
+                            if(myMsg->payload[i] > 0 && myMsg->payload[i] != 255)
+                                Map[myMsg->src].hopCost[i] = myMsg->payload[i];
                            // dbg(GENERAL_CHANNEL, "Payload: %d , Map hopcost for %d: %d, i = %d\n", myMsg->payload[i], myMsg->src, Map[myMsg->src].hopCost[i], i );
                         }
                         makePack(&sendPackage, myMsg->src, myMsg->dest, myMsg->TTL-1, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
@@ -382,7 +396,7 @@ implementation{
         {
             for (j = 1; j < 20; j++)
             {
-                if(Map[i].hopCost[j] > 0)
+                //if(Map[i].hopCost[j] > 0)
                     dbg(GENERAL_CHANNEL, "Src: %d, Dest: %d, Cost:%d\n", i, j, Map[i].hopCost[j]);
             }
         }
@@ -392,7 +406,7 @@ implementation{
     {
         int i;
         dbg(GENERAL_CHANNEL, "Printing Cost List\n");
-        for (i = 0; i < 20; i++)
+        for (i = 1; i < 20; i++)
             {
                 if(cost[i] > 0 && cost[i] != 255)
                     dbg(GENERAL_CHANNEL, "Src: %d, Dest: %d, Cost:%d\n", node, i, cost[i]);
@@ -403,7 +417,7 @@ implementation{
     {
         int i;
         dbg(GENERAL_CHANNEL, "Printing Table\n");
-        for (i = 0; i < 20; i++)
+        for (i = 1; i < 20; i++)
         {
             dbg(GENERAL_CHANNEL, "Dest: %d, HopTo: %d, Cost:%d\n", confirmedTable.lspIndex[i].dest, confirmedTable.lspIndex[i].hopTo, confirmedTable.lspIndex[i].hopCost);  
         }           
@@ -445,6 +459,7 @@ implementation{
     {
         
         int i;
+        bool tentIsEmpty = FALSE;
         lspIndex Next, Temp;
         printMap();
         initializeTable(&confirmedTable);
@@ -453,7 +468,7 @@ implementation{
         Next.dest = TOS_NODE_ID;
         Next.hopTo = TOS_NODE_ID;
         Next.hopCost = 0;
-        tablePushBack(&confirmedTable, Next);
+        tablePush(&confirmedTable, Next);
         /*
         confirmedTable.lspIndex[TOS_NODE_ID].dest = TOS_NODE_ID;
         confirmedTable.lspIndex[TOS_NODE_ID].hopTo = TOS_NODE_ID;
@@ -464,7 +479,7 @@ implementation{
         
         do
         {
-            for (i = 0; i < 20; i++)
+            for (i = 1; i < 20; i++)
             {
                 if (Map[Next.dest].hopCost[i] > 0)
                 {
@@ -472,27 +487,34 @@ implementation{
                     if (Map[Next.dest].hopCost[i] == 1)
                         Temp.hopTo = i;
                     else Temp.hopTo = Next.hopTo;
-                    Temp.hopCost = Next.hopCost + Map[Next.dest].hopCost[i];
-                    dbg(GENERAL_CHANNEL, "Next.hopCost: %d, Map Hopcost: %d\n",Next.hopCost, Map[Next.dest].hopCost[i] );
-
+                    Temp.hopCost = Next.hopCost + 1;//Map[Next.dest].hopCost[i];
+                     dbg(GENERAL_CHANNEL, "Temp.Dest: %d, Temp.hopCost: %d, i = %d\n", Temp.dest, Temp.hopCost, i);
+                   
                     if(!doesTableContain(&confirmedTable,Temp.dest))
                     {
                         if(!doesTableContain(&tentativeTable, Temp.dest))
-                            tablePushBack(&tentativeTable, Temp);
+                            tablePush(&tentativeTable, Temp);
                         
                         else 
                         {
                             if (getTableIndex(&tentativeTable, Temp.dest).hopCost > Temp.hopCost)
-                                updateTableCost(&tentativeTable, Temp, Temp.hopCost );
+                                updateTableCost(&tentativeTable, Temp );
                         }  
                     }
                 }
             }
 
-            Next = popMinCostIndex(&tentativeTable);
-            tablePushBack(&confirmedTable, Next);
+            if (isTableEmpty(&tentativeTable))
+                tentIsEmpty = TRUE;
+                
+            else
+            {
+                Next = popMinCostIndex(&tentativeTable);
+                tablePush(&confirmedTable, Next);
+            }
+            
 
-        } while(!isTableEmpty(&tentativeTable));
+        } while(!tentIsEmpty);
 
         printTable();
     }
