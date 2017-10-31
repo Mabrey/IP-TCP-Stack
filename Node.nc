@@ -53,6 +53,7 @@ implementation{
     //Project 2
     map Map[20];
     uint8_t cost[20];
+    int sizeOfNetwork;
     routingTable confirmedTable;
     routingTable tentativeTable;
     bool nodeFired = FALSE;
@@ -75,6 +76,7 @@ implementation{
     void lspShareNeighbor();
     void dijkstra();
     int findForwardDest(int dest);
+    int detectNetworkSize();
 
     event void Boot.booted(){
         //dbg(GENERAL_CHANNEL, "Booted\n");
@@ -117,13 +119,15 @@ implementation{
             lspShareNeighbor();
             LSPFired = TRUE;
         }
-       // dbg(GENERAL_CHANNEL, "Firing LSP TIMER\n");
+        
+        
         call LSPNodeTimer.startPeriodic(500000);
     }
 
     event void dijkstraTimer.fired(){
         if (LSPFired)
         {
+            dbg(GENERAL_CHANNEL, "Size of Network: %d\n", detectNetworkSize());
             dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
             dijkstra(); 
         }
@@ -493,8 +497,8 @@ implementation{
                     //if (Map[Next.dest].hopCost[i] == 1)
                     //    Temp.hopTo = i;
                     //else Temp.hopTo = Next.hopTo;
-                    Temp.hopCost = Next.hopCost + 1;    //Map[Next.dest].hopCost[i];
-                    //dbg(GENERAL_CHANNEL, "Temp.Dest: %d, Temp.hopCost: %d, i = %d\n", Temp.dest, Temp.hopCost, i);
+                    Temp.hopCost = Next.hopCost + 1;   
+                    
                    
                     if(!doesTableContain(&confirmedTable,Temp.dest))
                     {
@@ -530,6 +534,25 @@ implementation{
         int forward;
         forward = getTableIndex(&confirmedTable, dest).hopTo;   
         return forward;  
+    }
+
+    int detectNetworkSize()
+    {
+        int i, j, networkSize;
+        networkSize = 0;
+
+        for (i = 1; i < 20; i++)
+        {
+            for(j = 1; j < 20; j++)
+            {
+                 if (Map[i].hopCost[j] == 1)
+                 {
+                     networkSize++;
+                     break;
+                 } 
+            }
+        }
+        return networkSize;
     }
 
 }
