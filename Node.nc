@@ -481,14 +481,20 @@ implementation{
         {
             for (i = 1; i < 20; i++)
             {
-                if (Map[Next.dest].hopCost[i] > 0)
+                if (Map[Next.dest].hopCost[i] == 1 && i != TOS_NODE_ID)
                 {
                     Temp.dest = i;
-                    if (Map[Next.dest].hopCost[i] == 1)
-                        Temp.hopTo = i;
-                    else Temp.hopTo = Next.hopTo;
-                    Temp.hopCost = Next.hopCost + 1;//Map[Next.dest].hopCost[i];
-                     dbg(GENERAL_CHANNEL, "Temp.Dest: %d, Temp.hopCost: %d, i = %d\n", Temp.dest, Temp.hopCost, i);
+
+                    if (Next.dest == TOS_NODE_ID)
+                        Temp.hopTo = Temp.dest;
+                    
+                    else 
+                        Temp.hopTo = Next.hopTo;
+                    //if (Map[Next.dest].hopCost[i] == 1)
+                    //    Temp.hopTo = i;
+                    //else Temp.hopTo = Next.hopTo;
+                    Temp.hopCost = Next.hopCost + 1;    //Map[Next.dest].hopCost[i];
+                    //dbg(GENERAL_CHANNEL, "Temp.Dest: %d, Temp.hopCost: %d, i = %d\n", Temp.dest, Temp.hopCost, i);
                    
                     if(!doesTableContain(&confirmedTable,Temp.dest))
                     {
@@ -506,7 +512,7 @@ implementation{
 
             if (isTableEmpty(&tentativeTable))
                 tentIsEmpty = TRUE;
-                
+
             else
             {
                 Next = popMinCostIndex(&tentativeTable);
