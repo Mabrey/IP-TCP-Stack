@@ -212,7 +212,7 @@ implementation{
                 {                                          
                     if (myMsg->protocol == PROTOCOL_PING)     //if message was ping, the source wants a reply
                     {
-                    dbg("flooding", "Packet has arrived to final destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                    dbg("flooding", "Packet has arrived to ping destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
                         //make reply packet back to the source
                         makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
@@ -353,7 +353,7 @@ implementation{
 					return TRUE;                            //if packet is a match, return true
 			}
 		}
-		return FALSE;
+		return FALSE; 
 	}
 
     void findNeighbors()					//look for neighbor nodes
