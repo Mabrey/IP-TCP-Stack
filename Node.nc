@@ -51,13 +51,14 @@ implementation{
     neighborhood neighborList;
 
     //Project 2
-    map Map[20];
-    uint8_t cost[20];
+    map Map[20];        //Map holds the cost of all neighbors from perspective of all nodes. This is the "database" updated by the LSPs, and how dijkstra determines shortest path.
+    uint8_t cost[20];   //this is the current nodes cost list. 
     int sizeOfNetwork;
     routingTable confirmedTable;
     routingTable tentativeTable;
     bool nodeFired = FALSE;
     bool LSPFired = FALSE;
+    bool neighborChange = FALSE;
 
     // Packet handling
     void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -67,12 +68,13 @@ implementation{
     //Neighbor discovery
     void findNeighbors();
     void initNeighborList();
-    bool printNeighbor();
+    void printNeighbor();
     bool containNeighbor(int node);
-
-    //Routing 
     void printMap();
     void printCost(int node);
+    void printTable();
+
+    //Routing 
     void lspShareNeighbor();
     void dijkstra();
     int findForwardDest(int dest);
@@ -107,12 +109,15 @@ implementation{
 
     event void AMControl.stopDone(error_t err){}
 
+    //Fire node neighbor discovery 
     event void NodeTimer.fired(){
        findNeighbors();
        nodeFired = TRUE;
        call NodeTimer.startPeriodic(500000);
    }
 
+    //fire the LSP packet sharing, telling the world about your neighbors. 
+    //Only share your neighbors if youve discovered them.
     event void LSPNodeTimer.fired(){
         if (nodeFired)
         {
@@ -120,16 +125,17 @@ implementation{
             LSPFired = TRUE;
         }
         
-        
         call LSPNodeTimer.startPeriodic(500000);
     }
 
+    //Fire the dijkstra's shortest path Alg. only if youve shared your neighbors.
+    //could probably be changed to prevent unnecessary firing.
     event void dijkstraTimer.fired(){
-        if (LSPFired)
+        if (LSPFired )
         {
             dbg(GENERAL_CHANNEL, "Size of Network: %d\n", detectNetworkSize());
             dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
-            dijkstra(); 
+            dijkstra();
         }
        // dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
         call dijkstraTimer.startPeriodic(1000000);
@@ -160,20 +166,20 @@ implementation{
                         makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 1, PROTOCOL_PINGREPLY, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));                     
                         pushPackList(sendPackage);
                         seqCount++;
-                        dbg("neighbor", "Sending Ping Reply to %d\n", myMsg -> src);
+                       // dbg("neighbor", "Sending Ping Reply to %d\n", myMsg -> src);
                         call Sender.send(sendPackage,myMsg->src);   //send back to source
                     }
 
                     //if broadcast was ping reply, neighbor is updating their existance.
                     else if (myMsg->protocol == PROTOCOL_PINGREPLY)     
                     {                                                    
-                        dbg("neighbor", "Ping Reply from %d\n", myMsg -> src);
+                       // dbg("neighbor", "Ping Reply from %d\n", myMsg -> src);
 
                         //if we've seen this neighbor before, reset their age
                         if(containNeighbor(myMsg->src))       
                         {    
                                 neighborList.neighbor[myMsg->src].age = 0;
-                                dbg("neighbor", "I know this neighbor\n");
+                               // dbg("neighbor", "I know this neighbor\n");
                         }    
 
                         //if you dont recognize the neighbor, add them to the list.
@@ -208,9 +214,13 @@ implementation{
                     }
 
                 }
-                else if (myMsg->dest == TOS_NODE_ID)        //the destination of the packet matches you, NOT DISCOVERY!
-                {                                          
-                    if (myMsg->protocol == PROTOCOL_PING)     //if message was ping, the source wants a reply
+
+                //the destination of the packet matches you, NOT DISCOVERY!
+                else if (myMsg->dest == TOS_NODE_ID)        
+                {           
+
+                    //if message was ping, the source wants a reply                               
+                    if (myMsg->protocol == PROTOCOL_PING)     
                     {
                     dbg("flooding", "Packet has arrived to ping destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
@@ -220,13 +230,16 @@ implementation{
                         seqCount++;
                         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
                     }
+
+                    //if message was a reply, you pinged it and recieved the ack.
                     else if (myMsg->protocol == PROTOCOL_PINGREPLY)   
-                    {  //if message was a reply, you pinged it and recieved the ack.
+                    {  
                         dbg("flooding", "Packet reply recieved! Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
-                        //save the packet 
                         makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);               
                     }
+
+                    //If message is for routing, reply w/ ack
                     else if(myMsg->protocol == PROTOCOL_ROUTING)
                     {
 
@@ -298,7 +311,10 @@ implementation{
       printNeighbor();
    }
 
-    event void CommandHandler.printRouteTable(){}
+    event void CommandHandler.printRouteTable()
+    {
+        printTable();
+    }
 
    event void CommandHandler.printLinkState(){}
 
@@ -396,13 +412,13 @@ implementation{
         neighborList.size = 0;
     }
 
-    bool printNeighbor()
+    void printNeighbor()
    {
 		int i;
         if (neighborList.size == 0)
         {
             dbg(GENERAL_CHANNEL, "No Neighbors\n");
-            return FALSE;
+            return;
         }
 
         for(i = 0; i < 20; i++)
@@ -410,6 +426,23 @@ implementation{
             if (neighborList.neighbor[i].inList)
                 dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d, i = %d\n", TOS_NODE_ID, neighborList.neighbor[i].node, neighborList.neighbor[i].age, i);
         }
+        return;
+   }
+
+   bool neighborListEmpty()
+   {
+       int i;
+        if (neighborList.size == 0)
+        {
+           // dbg(GENERAL_CHANNEL, "No Neighbors\n");
+            return FALSE;
+        }
+
+        //for(i = 0; i < 20; i++)
+      //  {
+            //if (neighborList.neighbor[i].inList)
+            //    dbg(GENERAL_CHANNEL, "Node: %d, Neighbor: %d, Neighbor Age: %d, i = %d\n", TOS_NODE_ID, neighborList.neighbor[i].node, neighborList.neighbor[i].age, i);
+       // }
         return TRUE;
    }
 
@@ -477,9 +510,9 @@ implementation{
                 Map[TOS_NODE_ID].hopCost[i] = 0;
             }
         }
-        if (printNeighbor())
+        if (neighborListEmpty())
         {
-            printCost(TOS_NODE_ID);
+            //printCost(TOS_NODE_ID);
                             //create a package to get ready to send for neighbor discovery
             makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 32, PROTOCOL_LSP, seqCount, (uint8_t*) cost, (uint8_t) sizeof(cost));
             pushPackList(sendPackage);
@@ -495,24 +528,22 @@ implementation{
         int i;
         bool tentIsEmpty = FALSE;
         lspIndex Next, Temp;
-        printMap();
+        int size = detectNetworkSize + 1;
+        //printMap();
         initializeTable(&confirmedTable);
         initializeTable(&tentativeTable);
 
+        //Initialize the table by inputing the current node in the confirmed list
         Next.dest = TOS_NODE_ID;
         Next.hopTo = TOS_NODE_ID;
         Next.hopCost = 0;
         tablePush(&confirmedTable, Next);
-        /*
-        confirmedTable.lspIndex[TOS_NODE_ID].dest = TOS_NODE_ID;
-        confirmedTable.lspIndex[TOS_NODE_ID].hopTo = TOS_NODE_ID;
-        confirmedTable.lspIndex[TOS_NODE_ID].hopCost = 0;
-        Next = confirmedTable.lspIndex[TOS_NODE_ID];
-        */
-        //make next equal to current node, and expand its neighbors onto tentative list
-        
+
+        //find the next hops w/ dijkstra 
         do
         {
+            //check the other nodes in map for their cost.
+            //if cost = 1, it is a direct neighbor. Sum total cost to that node.
             for (i = 1; i < 20; i++)
             {
                 if (Map[Next.dest].hopCost[i] == 1 && i != TOS_NODE_ID)
@@ -524,17 +555,16 @@ implementation{
                     
                     else 
                         Temp.hopTo = Next.hopTo;
-                    //if (Map[Next.dest].hopCost[i] == 1)
-                    //    Temp.hopTo = i;
-                    //else Temp.hopTo = Next.hopTo;
+                    
                     Temp.hopCost = Next.hopCost + 1;   
                     
-                   
+                   //if temp is not in any list, put it in tentative list.
                     if(!doesTableContain(&confirmedTable,Temp.dest))
                     {
                         if(!doesTableContain(&tentativeTable, Temp.dest))
                             tablePush(&tentativeTable, Temp);
                         
+                        //if it is in tent list, check if your new cost is lower and replace.
                         else 
                         {
                             if (getTableIndex(&tentativeTable, Temp.dest).hopCost > Temp.hopCost)
@@ -543,10 +573,11 @@ implementation{
                     }
                 }
             }
-
+            //check if tent table is empty
             if (isTableEmpty(&tentativeTable))
                 tentIsEmpty = TRUE;
 
+            //if not empty, remove best option from list
             else
             {
                 Next = popMinCostIndex(&tentativeTable);
@@ -556,7 +587,7 @@ implementation{
 
         } while(!tentIsEmpty);
 
-        printTable();
+        //printTable();
     }
 
     int findForwardDest(int dest)
@@ -566,6 +597,9 @@ implementation{
         return forward;  
     }
 
+    //Use this to detect how many nodes are being used on the network.
+    //For simplicity, I have a max of 20 nodes to check on the network'
+    //since I'm not sure yet how to dynamically create the network size.
     int detectNetworkSize()
     {
         int i, j, networkSize;
