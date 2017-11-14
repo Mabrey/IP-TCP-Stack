@@ -86,9 +86,9 @@ implementation{
         call AMControl.start();
          initializeMap(Map);
 
-        start = TOS_NODE_ID*2000; 
-        lspStart = TOS_NODE_ID*50000; 
-        dijkstraStart = TOS_NODE_ID * 1000000;
+        start = 15000; 
+        lspStart = 70000 + (uint16_t)((call Random.rand16())%10000); 
+        dijkstraStart =  100000 + (uint16_t)((call Random.rand16())%10000);
         call NodeTimer.startOneShot(start);
         call LSPNodeTimer.startOneShot(lspStart);
         call dijkstraTimer.startOneShot(dijkstraStart);
