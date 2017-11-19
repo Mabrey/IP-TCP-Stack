@@ -46,14 +46,15 @@ module Node{
    uses interface Timer<TMilli> as connectAttempt;
    uses interface Timer<TMilli> as writeTimer;
    uses interface Random as Random;
+   uses interface sequencer;
 }
 
 implementation{
         
     //Project 1     
     pack sendPackage;
-    TCPPack tcpPayload;
-    uint16_t seqCount = 0;
+    TCPpack tcpPayload;
+    
     neighborhood neighborList;
 
     //Project 2
@@ -187,9 +188,9 @@ implementation{
                     //send them a reply to add you to their list
                     if (myMsg->protocol == PROTOCOL_PING)      
                     {
-                        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 1, PROTOCOL_PINGREPLY, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));                     
+                        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 1, PROTOCOL_PINGREPLY, call sequencer.getSeq(), (uint8_t*) myMsg->payload, sizeof(myMsg->payload));                     
                         pushPackList(sendPackage);
-                        seqCount++;
+                        call sequencer.updateSeq();
                        // dbg("neighbor", "Sending Ping Reply to %d\n", myMsg -> src);
                         call Sender.send(sendPackage,myMsg->src);   //send back to source
                     }
@@ -249,9 +250,9 @@ implementation{
                         dbg("flooding", "Packet has arrived to ping destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
                         //make reply packet back to the source
-                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_PINGREPLY, call sequencer.getSeq(), (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);
-                        seqCount++;
+                        call sequencer.updateSeq();
                         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
                     }
 
@@ -277,9 +278,9 @@ implementation{
                             return msg;
                         }
 
-                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_ROUTINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
+                        makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_ROUTINGREPLY, call sequencer.getSeq(), (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);
-                        seqCount++;
+                        call sequencer.updateSeq();
                         call Sender.send(sendPackage, dest);
                     }
                     
@@ -331,8 +332,8 @@ implementation{
         int dest;
         dest = findForwardDest(destination);
         dbg(GENERAL_CHANNEL, "PING EVENT \n");
-        makePack(&sendPackage, TOS_NODE_ID, destination, MAX_TTL, PROTOCOL_ROUTING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
-        seqCount++;
+        makePack(&sendPackage, TOS_NODE_ID, destination, MAX_TTL, PROTOCOL_ROUTING, call sequencer.getSeq(), payload, PACKET_MAX_PAYLOAD_SIZE);
+        call sequencer.getSeq;
         logPack(&sendPackage);
         pushPackList(sendPackage);
 
@@ -471,9 +472,9 @@ implementation{
          }
      
                             //create a package to get ready to send for neighbor discovery
-        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 2, PROTOCOL_PING, seqCount, (uint8_t*) message, (uint8_t) sizeof(message));
+        makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 2, PROTOCOL_PING, call sequencer.getSeq(), (uint8_t*) message, (uint8_t) sizeof(message));
         pushPackList(sendPackage);
-        seqCount++;
+        call sequencer.updateSeq();
         call Sender.send(sendPackage, AM_BROADCAST_ADDR);
     }
 
@@ -591,9 +592,9 @@ implementation{
         {
             //printCost(TOS_NODE_ID);
                             //create a package to get ready to send for neighbor discovery
-            makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 32, PROTOCOL_LSP, seqCount, (uint8_t*) cost, (uint8_t) sizeof(cost));
+            makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 32, PROTOCOL_LSP, call sequencer.getSeq(), (uint8_t*) cost, (uint8_t) sizeof(cost));
             pushPackList(sendPackage);
-            seqCount++;
+            call sequencer.updateSeq();
             call Sender.send(sendPackage, AM_BROADCAST_ADDR);
         }
         

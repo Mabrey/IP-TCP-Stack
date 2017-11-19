@@ -5,6 +5,7 @@
 
 uses interface Hashmap<socket_store_t> as socketHash;
 uses interface List<socket_port_t> as bookedPorts;
+uses interface sequencer;
 //uses interface 
 
 module TransportP{
@@ -18,6 +19,9 @@ implementation {
 
     pack sendPackage;
     TCPPack tcpPayload;
+    
+
+
     //socket_t socket;
     //socket_addr_t sockAddr;
 
@@ -41,8 +45,6 @@ implementation {
         socket -> lastRead = 0;
         socket -> lastRecd = 0;
         socket -> nextExpected = 0;
-
-
     }
 
     void makeTCPPack(TCPPack *TCPPack, uint8_t srcPort, uint8_t destPort, uint16_t seq, uint8_t flag, uint8_t window, uint8_t *payload, uint8_t length)
@@ -88,9 +90,10 @@ implementation {
     command void Transport.buildPack(socket_store_t* socket, routingTable Table, uint8_t flag, uint16_t seq)
     {
         
-        makeTCPPack(&tcpPayload, socket->src, socket->dest.port, seq, flag, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
-        makePack(&sendPackage, TOS_NODE_ID, socket -> dest.addr, MAX_TTL, PROTOCOL_TCP, seq, tcpPayload, sizeof(tcpPayload));
-        //how to increment seq?
+        makeTCPPack(&tcpPayload, socket->src, socket->dest.port, TCPSeq, flag, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
+        makePack(&sendPackage, TOS_NODE_ID, socket -> dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), (uint8_t*) tcpPayload, sizeof(tcpPayload));
+        pushPackList(sendPackage);
+        call sequencer.updateSeq();
         call Sender.send(sendPackage, getTableIndex(Table, socket -> dest.addr).hopTo); 
     }
 
@@ -244,6 +247,8 @@ implementation {
                     mySocket -> dest.port = tcpPack -> srcPort;
                     mySocket -> dest.addr = myMsg -> src; 
                     tcpPack->seq = tcpPack->seq + 1;
+                    mySocket->state = SYN_RCVD;
+
                     
                     call Transport.buildPack(&mySocket, confirmedTable, 2, tcpPack->seq);
                     dbg("general", "Sending SYN_ACK");
@@ -259,6 +264,11 @@ implementation {
                 //we have to find the fd which contains the port
 
                 fileD = call findPort(tcpPack -> destPort);
+                if (fileD == NULL)
+                {
+                    dbg("general", "Could not find port");
+                    break;
+                } 
                
                 //get socket from hashmap using fileD, just to be safe?
                 mySocket = call socketHash.get(fileD);
@@ -274,8 +284,20 @@ implementation {
 
             case 3: //ACK
                 dbg("general", "ACK Received");
+                fileD = call findPort(tcpPack -> destPort);
+                if (fileD == NULL)
+                {
+                    dbg("general", "Could not find port");
+                    break;
+                } 
 
+                mySocket = call socketHash.get(fileD);
 
+                if (mySocket->state = SYN_RCVD)
+                {
+                    mySocket->state = ESTABLISHED;
+                }
+                
 
                 break;
 
@@ -342,9 +364,9 @@ implementation {
             synSocket -> dest.addr = addr -> addr;
             //make a tcp packet, then add the header of the "IP" layer
             makeTCPPack(&tcpPayload, synSocket->src, addr.port, seq, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
-            makePack(&sendPackage, TOS_NODE_ID, synSocket -> dest.addr, MAX_TTL, PROTOCOL_TCP, seq, tcpPayload, sizeof(tcpPayload));
+            makePack(&sendPackage, TOS_NODE_ID, synSocket -> dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), (uint8_t*) tcpPayload, sizeof(tcpPayload));
             call Sender.send(sendPackage, getTableIndex(Table, synSocket -> dest.addr).hopTo);
-            seq++;
+            call sequencer.updateSeq();
             synSocket->state = SYN_SENT;
             return SUCCESS;
         }
