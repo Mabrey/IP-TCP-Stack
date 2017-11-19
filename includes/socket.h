@@ -14,6 +14,7 @@ enum socket_state{
     ESTABLISHED,
     SYN_SENT,
     SYN_RCVD,
+    CLOSE_WAIT,
 };
 
 
@@ -32,6 +33,8 @@ typedef uint8_t socket_t;
 
 // State of a socket. 
 typedef struct socket_store_t{
+    socket_t fdSrc;
+    socket_t fdDest;
     uint8_t flag;
     enum socket_state state;
     socket_port_t src;

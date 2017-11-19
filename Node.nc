@@ -14,6 +14,8 @@
 #include "includes/channels.h"
 #include "includes/Map.h"
 #include "includes/LSRouting.h"
+#include "includes/socket.h"
+#include "includes/TCPpacket.h"
 
 //create neighbor struct 
 typedef struct neighbor                 
@@ -36,10 +38,13 @@ module Node{
    uses interface Receive;
    uses interface SimpleSend as Sender;
    uses interface CommandHandler;
-   uses interface List<pack> as packList;					
+   uses interface List<pack> as packList;	
+   uses interface List<socket_t> 				
    uses interface Timer<TMilli> as NodeTimer;
    uses interface Timer<TMilli> as LSPNodeTimer;
    uses interface Timer<TMilli> as dijkstraTimer;
+   uses interface Timer<TMilli> as connectAttempt;
+   uses interface Timer<TMilli> as writeTimer;
    uses interface Random as Random;
 }
 
@@ -47,6 +52,7 @@ implementation{
         
     //Project 1     
     pack sendPackage;
+    TCPPack tcpPayload;
     uint16_t seqCount = 0;
     neighborhood neighborList;
 
@@ -59,6 +65,12 @@ implementation{
     bool nodeFired = FALSE;
     bool LSPFired = FALSE;
     bool neighborChange = FALSE;
+
+    //Project 3
+    socket_t* socketC;
+    socket_t* socketS;
+    socket_addr_t* addrC;
+    socket_addr_t* addrS;
 
     // Packet handling
     void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -84,7 +96,7 @@ implementation{
         //dbg(GENERAL_CHANNEL, "Booted\n");
         uint16_t start, lspStart, dijkstraStart;
         call AMControl.start();
-         initializeMap(Map);
+        initializeMap(Map);
 
         start = 15000; 
         lspStart = 70000 + (uint16_t)((call Random.rand16())%10000); 
@@ -141,6 +153,18 @@ implementation{
         call dijkstraTimer.startPeriodic(1000000);
     }
 
+    //timer is supposed to be implemented, but may not need it?
+/*
+    event void connectAttempt.fired()
+    {
+
+    }
+
+    event void writeTimer.fired()
+    {
+
+    }
+*/ 
     event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
         pack* myMsg=(pack*) payload;
         //dbg("neighbor", "Packet Received from %d\n", myMsg->src);
@@ -222,7 +246,7 @@ implementation{
                     //if message was ping, the source wants a reply                               
                     if (myMsg->protocol == PROTOCOL_PING)     
                     {
-                    dbg("flooding", "Packet has arrived to ping destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                        dbg("flooding", "Packet has arrived to ping destination. Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
 
                         //make reply packet back to the source
                         makePack(&sendPackage, TOS_NODE_ID, myMsg->src, 32, PROTOCOL_PINGREPLY, seqCount, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
@@ -258,13 +282,21 @@ implementation{
                         seqCount++;
                         call Sender.send(sendPackage, dest);
                     }
-
+                    
+                    //message is for reply to routing msg
                     else if(myMsg -> protocol == PROTOCOL_ROUTINGREPLY)
                     {
-                       dbg("general", "Routing reply recieved! Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
+                        dbg("general", "Routing reply recieved! Current Node: %d, Source Node: %d, Packet Message: %s\n", TOS_NODE_ID, myMsg->src, myMsg->payload);
                         //save the packet 
                         makePack(&sendPackage, myMsg->src, TOS_NODE_ID, myMsg->TTL, myMsg->protocol, myMsg->seq, (uint8_t*) myMsg->payload, sizeof(myMsg->payload));
                         pushPackList(sendPackage);   
+                    }
+
+                    else if(myMsg -> protocol == PROTOCOL_TCP)
+                    {
+                        if (call Transport.receive(myMsg) == SUCCESS)
+                            dbg("general", "Package handled correctly");
+
                     }
                 }
 
@@ -293,13 +325,13 @@ implementation{
         }
    
     }    
-           
+       
 
     event void CommandHandler.ping(uint16_t destination, uint8_t *payload){
         int dest;
         dest = findForwardDest(destination);
         dbg(GENERAL_CHANNEL, "PING EVENT \n");
-        makePack(&sendPackage, TOS_NODE_ID, destination, 64, PROTOCOL_ROUTING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
+        makePack(&sendPackage, TOS_NODE_ID, destination, MAX_TTL, PROTOCOL_ROUTING, seqCount, payload, PACKET_MAX_PAYLOAD_SIZE);
         seqCount++;
         logPack(&sendPackage);
         pushPackList(sendPackage);
@@ -320,9 +352,54 @@ implementation{
 
    event void CommandHandler.printDistanceVector(){}
 
-   event void CommandHandler.setTestServer(){}
+   event void CommandHandler.setTestServer(uint8_t port)
+   {
+       socket_t fd = call Transport.socket();
+       socket_addr_t socketAddr;
+       //check if socket was created successfully
+       if (fd != NULL)
+       {
+           socketAddr.addr = TOS_NODE_ID;
+           socketAddr.port = port;
+           if(call Transport.bind(fd, &socketAddr) == SUCCESS && call Transport.listen(fd) == SUCCESS)
+           {
+              // call connectAttempt.startPeriodic(2500);//start connection timer
+                dbg("general", "Server is Listening");
+           }
+        
+       }
 
-   event void CommandHandler.setTestClient(){}
+   }
+
+   event void CommandHandler.setTestClient(uint8_t dest, uint8_t srcPort, uint8_t destPort, uint16_t *transfer)
+   {
+        socket_t fd = call Transport.socket();
+        socket_addr_t clientAddr;
+        socket_addr_t serverAddr;
+        if (fd != NULL)
+        {
+            dbg("general", "Created Client");
+            clientAddr.addr = TOS_NODE_ID;
+            clientAddr.port = srcPort;
+            if (call Transport.bind(fd, &clientAddr) == SUCCESS)
+            {
+                serverAddr.addr = dest;
+                serverAddr.port = destPort;
+                if (call Transport.connect(fd, &serverAddr, &confirmedTable) == SUCCESS)
+                {
+                    dbg("general", "Connect Attempt Success");
+                    //start timer for client write
+                   // call writeTimer.startPeriodic(8000);
+                    //variable of data equal to transfer
+                }
+                else dbg("general", "Connect Attempt Failed");
+
+            }
+        }
+
+
+
+   }
 
    event void CommandHandler.setAppServer(){}
 
@@ -358,7 +435,7 @@ implementation{
 	
 		else 
 		{
-			for(i = 0; i < size; i++)               //iterate through packList, compare source, destination, and the sequence number.
+			for(i = 0; i < size; i++)               //iterate through packList, compare source, destination, sequence number, and protocol.
 			{
 				seenPacket = call packList.get(i);
 				if (seenPacket.src == packet->src && 
