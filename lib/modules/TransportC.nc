@@ -7,11 +7,14 @@ configuration TransportC
 
 implementation
 {
+    
+
     components TransportP;
     Transport = TransportP;
 
-    components new HashmapC(socket_store_t, 10) as socketHashC;
-    TransportP.socketHash -> socketHashC;
+   // components new HashmapC(socket_store_t, 10) as socketHashC;
+   // TransportP.socketHash -> socketHashC;
+    //Node.socketHash -> socketHashC;
 
     components new ListC(socket_port_t, 10) as bookedPortsC;
     TransportP.bookedPorts -> bookedPortsC;

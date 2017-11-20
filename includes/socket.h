@@ -9,12 +9,12 @@ enum{
 };
 
 enum socket_state{
-    CLOSED,
-    LISTEN,
-    ESTABLISHED,
-    SYN_SENT,
-    SYN_RCVD,
-    CLOSE_WAIT,
+    CLOSED = 0,
+    LISTEN = 1,
+    ESTABLISHED = 2,
+    SYN_SENT = 3,
+    SYN_RCVD = 4,
+    CLOSE_WAIT = 5,
 };
 
 

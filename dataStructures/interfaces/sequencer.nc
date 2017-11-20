@@ -3,7 +3,7 @@
 //in a global scope
 interface sequencer
 {
-    command uint16_t sequencer.getSeq();
-    command void sequencer.updateSeq();
+    command uint16_t getSeq();
+    command void updateSeq();
  
 }

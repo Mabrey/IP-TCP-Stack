@@ -1,5 +1,6 @@
-#include "../../packet.h"
-#include "../../socket.h"
+#include "../../includes/packet.h"
+#include "../../includes/socket.h"
+#include "../../includes/LSRouting.h"
 
 /**
  * The Transport interface handles sockets and is a layer of abstraction
@@ -16,7 +17,15 @@
  */
 
 interface Transport{
-  
+
+    command void updateTable(routingTable table);
+
+    command void initializeSocket(socket_store_t* socket);
+
+    command void buildPack(socket_store_t* socket, routingTable Table, uint8_t flag);
+    
+    command void createServerSocket();
+
    command socket_t socket();
  
    command error_t bind(socket_t fd, socket_addr_t *addr);

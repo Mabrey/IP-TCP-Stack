@@ -29,6 +29,9 @@ implementation {
     Node.LSPNodeTimer -> LSPNodeTimerC;
     Node.dijkstraTimer -> dijkstraTimerC;
 
+    components TransportP;
+    Node.Transport -> TransportP;
+
     components ActiveMessageC;
     Node.AMControl -> ActiveMessageC;
 
@@ -42,6 +45,10 @@ implementation {
     components new ListC(pack,64) as packListC;            //create a list for packets
     Node.packList->packListC;
     TransportP.packList -> packListC;
+
+    components new HashmapC(socket_store_t, 10) as socketHashC;
+    Node.socketHash -> socketHashC;
+    TransportP.socketHash -> socketHashC;
    
     //components new ListC(neighbor*,64) as neighborListC;   //create a list for neighbors
    // Node.neighborList->neighborListC;
@@ -51,8 +58,12 @@ implementation {
 
     components RandomC as Random;
     Node.Random -> Random;
+    TransportP.Random -> Random;
 
     components sequencerC;
     Node.sequencer -> sequencerC;
     TransportP.sequencer -> sequencerC;
+
+    components TransportC;
+    Node.Transport -> TransportC;
 }

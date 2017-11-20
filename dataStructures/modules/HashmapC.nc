@@ -42,7 +42,7 @@ implementation{
       uint32_t i=0;	uint32_t j=0;
 
       if(k == EMPTY_KEY){
-          dbg(HASHMAP_CHANNEL, "[HASHMAP] You cannot insert a key of %d.", EMPTY_KEY);
+          dbg("general", "[HASHMAP] You cannot insert a key of %d.\n", EMPTY_KEY);
           return;
       }
 
@@ -142,12 +142,12 @@ implementation{
 
    command bool Hashmap.contains(uint32_t k){
       uint32_t i=0;	uint32_t j=0;
-      /*
+      
       if(k == EMPTY_KEY)
 	{
 		return FALSE;
 	}
-	*/
+	
       do{
          j=hash(k, i);
          if(map[j].key == k)

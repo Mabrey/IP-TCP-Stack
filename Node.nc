@@ -39,14 +39,16 @@ module Node{
    uses interface SimpleSend as Sender;
    uses interface CommandHandler;
    uses interface List<pack> as packList;	
-   uses interface List<socket_t> 				
+   uses interface List<socket_t> as socketList;
+   uses interface Hashmap<socket_store_t> as socketHash;
    uses interface Timer<TMilli> as NodeTimer;
    uses interface Timer<TMilli> as LSPNodeTimer;
    uses interface Timer<TMilli> as dijkstraTimer;
-   uses interface Timer<TMilli> as connectAttempt;
-   uses interface Timer<TMilli> as writeTimer;
+   //uses interface Timer<TMilli> as connectAttempt;
+   //uses interface Timer<TMilli> as writeTimer;
    uses interface Random as Random;
    uses interface sequencer;
+   uses interface Transport;
 }
 
 implementation{
@@ -333,7 +335,7 @@ implementation{
         dest = findForwardDest(destination);
         dbg(GENERAL_CHANNEL, "PING EVENT \n");
         makePack(&sendPackage, TOS_NODE_ID, destination, MAX_TTL, PROTOCOL_ROUTING, call sequencer.getSeq(), payload, PACKET_MAX_PAYLOAD_SIZE);
-        call sequencer.getSeq;
+        call sequencer.getSeq();
         logPack(&sendPackage);
         pushPackList(sendPackage);
 
@@ -355,48 +357,81 @@ implementation{
 
    event void CommandHandler.setTestServer(uint8_t port)
    {
-       socket_t fd = call Transport.socket();
-       socket_addr_t socketAddr;
-       //check if socket was created successfully
-       if (fd != NULL)
-       {
-           socketAddr.addr = TOS_NODE_ID;
+        socket_t fd = 1;
+        socket_addr_t socketAddr;
+        socket_store_t newSocket;
+        dbg("general", "Starting Server\n");
+        call Transport.updateTable(confirmedTable);
+        call Transport.createServerSocket();
+        //dbg("general", "Hashmap size: %d \n", call socketHash.size());
+
+        if(call socketHash.contains(fd))
+        {
+           // dbg("general", "SocketHash contains port %d \n", port);
+            newSocket = call socketHash.get(fd);
+          //  dbg("general", "socket collected \n");
+            
+           
+           //socketAddr.addr = TOS_NODE_ID;
            socketAddr.port = port;
+         //  dbg("general", "New socket state: %d\n", newSocket.state);
+         //  dbg("general", "calling bind and listen\n");
+           
            if(call Transport.bind(fd, &socketAddr) == SUCCESS && call Transport.listen(fd) == SUCCESS)
            {
               // call connectAttempt.startPeriodic(2500);//start connection timer
-                dbg("general", "Server is Listening");
-           }
-        
-       }
+                newSocket = call socketHash.get(fd);
+                dbg("general", "Server is Listening\n");
+                dbg("general", "Server port: %d\n", newSocket.src);
 
+           }
+           else dbg("general", "Server failed to start\n");
+        }    
+            
+        
+      // }
+            //create the first port to listen with on server side
    }
 
-   event void CommandHandler.setTestClient(uint8_t dest, uint8_t srcPort, uint8_t destPort, uint16_t *transfer)
+   event void CommandHandler.setTestClient(uint8_t dest, uint8_t srcPort, uint8_t destPort, uint8_t *transfer)
    {
         socket_t fd = call Transport.socket();
         socket_addr_t clientAddr;
         socket_addr_t serverAddr;
-        if (fd != NULL)
+        error_t check = FAIL;
+        if (fd != 0 && fd != 1)
         {
-            dbg("general", "Created Client");
+            dbg("general", "Created Client\n");
             clientAddr.addr = TOS_NODE_ID;
             clientAddr.port = srcPort;
-            if (call Transport.bind(fd, &clientAddr) == SUCCESS)
+            check = call Transport.bind(fd, &clientAddr);
+            if (check == FAIL)
             {
+                dbg("general", "Can't bind\n");
+            }
+            else{
+                check = FAIL;
+                dbg("general", "Bind Success\n");
+                call Transport.updateTable(confirmedTable);
                 serverAddr.addr = dest;
                 serverAddr.port = destPort;
-                if (call Transport.connect(fd, &serverAddr, &confirmedTable) == SUCCESS)
+                check = call Transport.connect(fd, &serverAddr);
+                if ( check == FAIL)
                 {
-                    dbg("general", "Connect Attempt Success");
+                    dbg("general", "Transport Connect Fail");
+                }
+                else
+                {
+                    dbg("general", "Connect Attempt Success\n");
                     //start timer for client write
                    // call writeTimer.startPeriodic(8000);
                     //variable of data equal to transfer
                 }
-                else dbg("general", "Connect Attempt Failed");
+                //else dbg("general", "Connect Attempt Failed");
 
             }
         }
+        else dbg("general", "SocketHash is full");
 
 
 
@@ -509,7 +544,7 @@ implementation{
 
    bool neighborListEmpty()
    {
-       int i;
+       //int i;
         if (neighborList.size == 0)
         {
            // dbg(GENERAL_CHANNEL, "No Neighbors\n");
@@ -606,7 +641,7 @@ implementation{
         int i;
         bool tentIsEmpty = FALSE;
         lspIndex Next, Temp;
-        int size = detectNetworkSize + 1;
+        int size = (int) detectNetworkSize + 1;
         //printMap();
         initializeTable(&confirmedTable);
         initializeTable(&tentativeTable);

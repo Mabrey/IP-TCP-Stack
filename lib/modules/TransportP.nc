@@ -3,51 +3,44 @@
 #include "../../includes/channels.h"
 #include "../../includes/LSRouting.h"
 
-uses interface Hashmap<socket_store_t> as socketHash;
-uses interface List<socket_port_t> as bookedPorts;
-uses interface sequencer;
+
 //uses interface 
 
 module TransportP{
-   provides interface Transport;
-   
-   uses interface SimpleSend as Sender;
+    provides interface Transport;
+    uses interface Hashmap<socket_store_t> as socketHash;
+    uses interface List<socket_port_t> as bookedPorts;
+    uses interface List<pack> as packList;
+    uses interface sequencer;
+    uses interface SimpleSend as Sender;
+    uses interface Random as Random;
 
 }
 
 implementation {
 
     pack sendPackage;
-    TCPPack tcpPayload;
-    
+    routingTable confirmedTable;
+    TCPpack tcpPayload;
+    int TCPSeq = 0;
 
 
     //socket_t socket;
     //socket_addr_t sockAddr;
 
-    void initializeSocket(socket_store_t* socket)
+    bool checkPort(socket_port_t port)
     {
-        socket_port_t src;
-        do
-            {
-                src = call Random.rand8();
-            }while(src == 0 || bookedPorts.contains(src));
+        int i;
+        for (i = 0; i < call bookedPorts.size(); i++)
+        {
+            if (port == call bookedPorts.get(i))
+                return TRUE;
+        }
 
-        bookedPorts.push(src);
+        return FALSE;
+    }    
 
-        socket -> state = CLOSED;
-        socket -> src = src;
-        socket -> dest.port = 0;
-        socket -> dest.addr = 0;
-        socket -> lastWritten = 0;
-        socket -> lastAck = 0;
-        socket -> lastSent = 0;
-        socket -> lastRead = 0;
-        socket -> lastRecd = 0;
-        socket -> nextExpected = 0;
-    }
-
-    void makeTCPPack(TCPPack *TCPPack, uint8_t srcPort, uint8_t destPort, uint16_t seq, uint8_t flag, uint8_t window, uint8_t *payload, uint8_t length)
+    void makeTCPPack(TCPpack *TCPPack, uint8_t srcPort, uint8_t destPort, uint16_t seq, uint8_t flag, uint8_t window, uint8_t *payload, uint8_t length)
     {
         TCPPack -> srcPort = srcPort;
         TCPPack -> destPort = destPort;
@@ -57,7 +50,7 @@ implementation {
         memcpy(TCPPack->payload, payload, length);
     }
 
-    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, TCPPack* payload, uint8_t length){
+    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, TCPpack* payload, uint8_t length){
         Package->src = src;
         Package->dest = dest;
         Package->TTL = TTL;
@@ -68,16 +61,17 @@ implementation {
 
     socket_t findPort(uint8_t destPort)
     {
-        socket_t fileD = NULL;
-        socket_store_t *mySocket;
+        socket_t i;
+        socket_t fileD = 0;
+        socket_store_t mySocket;
 
-        for (i = 1; i < MAX_NUM_OF_SOCKETS; i++)
+        for (i = 2; i < 12; i++)
         {
             if(call socketHash.contains(i))
             {
                 mySocket = call socketHash.get(i);
                 //if the src of client matches the dest of the server
-                if (mySocket -> src == destPort)
+                if (mySocket.src == destPort)
                 {
                     fileD = (uint8_t) i;
                     return fileD;    
@@ -87,17 +81,57 @@ implementation {
         return fileD;
     }
 
-    command void Transport.buildPack(socket_store_t* socket, routingTable Table, uint8_t flag, uint16_t seq)
+    command void Transport.updateTable(routingTable table)
+    {
+        confirmedTable = table;
+    }
+   
+    command void Transport.initializeSocket(socket_store_t* socket)
+    {
+        socket_port_t src;
+        do
+            {
+                src = call Random.rand16()%255;
+            }while(src == 0 || checkPort(src));
+
+        call bookedPorts.pushback(src);
+
+        socket -> state = CLOSED;
+        socket -> src = src;
+        socket -> dest.port = 0;
+        socket -> dest.addr = 0;
+        socket -> lastWritten = 0;
+        socket -> lastAck = 0;
+        socket -> lastSent = 0;
+        socket -> lastRead = 0;
+        socket -> lastRcvd = 0;
+        socket -> nextExpected = 0;
+    }
+
+    command void Transport.buildPack(socket_store_t* socket, routingTable Table, uint8_t flag)
     {
         
         makeTCPPack(&tcpPayload, socket->src, socket->dest.port, TCPSeq, flag, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
-        makePack(&sendPackage, TOS_NODE_ID, socket -> dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), (uint8_t*) tcpPayload, sizeof(tcpPayload));
-        pushPackList(sendPackage);
+        makePack(&sendPackage, TOS_NODE_ID, socket -> dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
+        //pushPackList(sendPackage);
+        TCPSeq++;       //update sequence different, to maintain difference between sockets
         call sequencer.updateSeq();
-        call Sender.send(sendPackage, getTableIndex(Table, socket -> dest.addr).hopTo); 
+        call Sender.send(sendPackage, getTableIndex(&Table, socket -> dest.addr).hopTo); 
     }
 
+    command void Transport.createServerSocket()
+    {
+        socket_t fd = 1; 
+        socket_store_t newSocket;
+        call Transport.initializeSocket(&newSocket);
+        newSocket.state = LISTEN;
+        call socketHash.insert(fd, newSocket);
+        //dbg("general", "Server Socket Initialized\n");
+        //dbg("general", "Hashmap size: %d \n", call socketHash.size());
+        //dbg("general", "COPY\n");
 
+
+    }
 
     /**
     * Get a socket if there is one available.
@@ -109,18 +143,18 @@ implementation {
     */
     command socket_t Transport.socket()
     {
-        socket_t fd = NULL;
+        socket_t fd = 0;
         socket_store_t newSocket;
 
-        if(!(call socketHash.isFull()))
+        if(call socketHash.size() < 10)
         {
             do
             {
-                fd = (call Random.rand8() % 9) + 1;
-            }while(fd == 0 || socketHash.contains(fd));
+                fd = (call Random.rand16() % 11);
+            }while(fd == 0 || fd == 1 ||call socketHash.contains(fd));
 
             //pair fd to socket
-            initializeSocket(&newSocket);
+            call Transport.initializeSocket(&newSocket);
             call socketHash.insert(fd, newSocket);
         }
         return fd;
@@ -140,19 +174,21 @@ implementation {
     */
    command error_t Transport.bind(socket_t fd, socket_addr_t *addr)
    {
-       socket_store_t* bindSocket;
+       socket_store_t bindSocket;
 
        if (!call socketHash.contains(fd))
        {
-           dbg("general", "Can't bind socket to addr");
+           dbg("general", "Can't bind socket to addr\n");
            return FAIL;
        }
        else
        {
-           bindSocket = call Hashmap.get(fd);
-           bindSocket -> src = addr.port;
+           bindSocket = call socketHash.get(fd);
+           call socketHash.remove(fd);
+           bindSocket.src = addr -> port;
+           call socketHash.insert(fd, bindSocket);
             
-           dbg("general", "Socket %d bound to addr", fd);
+           dbg("general", "Socket %d bound to addr\n", fd);
            return SUCCESS;
        }
 
@@ -172,25 +208,27 @@ implementation {
     */
    command socket_t Transport.accept(socket_t fd)
    {
-       socket_t fileD = NULL;
+       socket_t fileD = 0;
        socket_store_t listenSocket;
-       socket_store_t* acceptSocket;
+       socket_store_t acceptSocket;
        if(call socketHash.contains(fd))
        {
-           listenSocket = socketHash.get(fd);
-           if (listenSocket-> state == LISTEN)
+           listenSocket = call socketHash.get(fd);
+           if (listenSocket.state == LISTEN)
            {
-              fileD = socket(); //create new socket
+              fileD = call Transport.socket(); //create new socket
               if(call socketHash.contains(fileD))
               {
-                  acceptSocket = socketHash.get(fileD);
-                  acceptSocket -> state = SYN_RCVD;
+                  //acceptSocket = call socketHash.get(fileD);
+                  //call socketHash.remove(fileD);
+                  //acceptSocket.state = SYN_RCVD;
+                 // call socketHash.insert(fileD, acceptSocket);
               }
                   
            }
        }
 
-    else return fileD;
+        return fileD;
 
    }
 
@@ -225,77 +263,81 @@ implementation {
     */
     command error_t Transport.receive(pack* package)
     {
-        pack* myMsg
-        socket_store_t* mySocket;
+        socket_store_t mySocket;
         socket_t fileD;
-        TCPPack* tcpPack;
-        tcpPack = myMsg->payload;
+        TCPpack* tcpPack;
+        tcpPack = (TCPpack*) package->payload;
+        //int i;
 
         switch (tcpPack->flag)
         {
 
             case 1: //SYN flag
-                dbg("general", "SYN Received");
-                fileD = call Transport.accept(0);
-                if (fileD == NULL)
-                    dbg("general", "Could not accept connection");
+                dbg("general", "SYN Received\n");
+                fileD = call Transport.accept(1);
+                if (fileD == 0 && fileD == 1)
+                    dbg("general", "Could not accept connection\n");
 
                 else
                 {
-                    dbg("general", "Accepted Connection");
-                    mySocket = socketHash.get(fileD);
-                    mySocket -> dest.port = tcpPack -> srcPort;
-                    mySocket -> dest.addr = myMsg -> src; 
+                    dbg("general", "Accepted Connection\n");
+                    mySocket = call socketHash.get(fileD);
+                    call socketHash.remove(fileD);
+                    mySocket.dest.port = tcpPack -> srcPort;
+                    mySocket.dest.addr = package -> src; 
                     tcpPack->seq = tcpPack->seq + 1;
-                    mySocket->state = SYN_RCVD;
+                    mySocket.state = SYN_RCVD;
+                    call socketHash.insert(fileD, mySocket);
 
                     
-                    call Transport.buildPack(&mySocket, confirmedTable, 2, tcpPack->seq);
-                    dbg("general", "Sending SYN_ACK");
+                    call Transport.buildPack(&mySocket, confirmedTable, 2);
+                    dbg("general", "Sending SYN_ACK\n");
                 }
                     
 
                 break;
 
             case 2: //SYN_ACK
-                int i;
+                
             
-                dbg("general", "SYN_ACK Received");
+                dbg("general", "SYN_ACK Received\n");
                 //we have to find the fd which contains the port
 
-                fileD = call findPort(tcpPack -> destPort);
-                if (fileD == NULL)
+                fileD = findPort(tcpPack -> destPort);
+                if (fileD == 0)
                 {
-                    dbg("general", "Could not find port");
+                    dbg("general", "Could not find port\n");
                     break;
                 } 
                
                 //get socket from hashmap using fileD, just to be safe?
                 mySocket = call socketHash.get(fileD);
+                call socketHash.remove(fileD);
 
-                mySocket -> dest.port = tcpPack -> src;
+                mySocket.dest.port = package -> src;
+                mySocket.state = ESTABLISHED;
+                call socketHash.insert(fileD, mySocket);
                 tcpPack->seq = tcpPack->seq + 1;
-                call Transport.buildPack(&mySocket, confirmedTable, 3, tcpPack->seq);
-                mySocket->state = ESTABLISHED;
+                
 
-                dbg("general", "ACK Sent, Socket State: ", mySocket->state);
+                dbg("general", "ACK Sent, Socket State: %d \n", mySocket.state);
 
                 break;
 
             case 3: //ACK
-                dbg("general", "ACK Received");
-                fileD = call findPort(tcpPack -> destPort);
-                if (fileD == NULL)
+                dbg("general", "ACK Received\n");
+                fileD = findPort(tcpPack -> destPort);
+                if (fileD ==(socket_t) NULL)
                 {
-                    dbg("general", "Could not find port");
+                    dbg("general", "Could not find port\n");
                     break;
                 } 
 
                 mySocket = call socketHash.get(fileD);
 
-                if (mySocket->state = SYN_RCVD)
+                if (mySocket.state == SYN_RCVD)
                 {
-                    mySocket->state = ESTABLISHED;
+                    mySocket.state = ESTABLISHED;
                 }
                 
 
@@ -311,7 +353,7 @@ implementation {
                 break;
 
             default:    //anything else
-                dbg("general", "FLAG INVALID");
+                dbg("general", "FLAG INVALID\n");
                 break;
 
 
@@ -352,22 +394,26 @@ implementation {
     * @return socket_t - returns SUCCESS if you are able to attempt
     *    a connection with the fd passed, else return FAIL.
     */
-   command error_t Transport.connect(socket_t fd, socket_addr_t * addr, routingTable Table)
+   command error_t Transport.connect(socket_t fd, socket_addr_t * addr)
    {
-        socket_store_t* synSocket;
+        socket_store_t synSocket;
         int seq = call Random.rand16(); //this is how tcp picks sequence numbers, at random instead of sequentially
 
         if (call socketHash.contains(fd))
         {
-            synSocket = call Hashmap.get(fd);
-            synSocket -> dest.port = addr -> port;
-            synSocket -> dest.addr = addr -> addr;
+            synSocket = call socketHash.get(fd);
+            synSocket.dest.port = addr -> port;
+            synSocket.dest.addr = addr -> addr;
             //make a tcp packet, then add the header of the "IP" layer
-            makeTCPPack(&tcpPayload, synSocket->src, addr.port, seq, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
-            makePack(&sendPackage, TOS_NODE_ID, synSocket -> dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), (uint8_t*) tcpPayload, sizeof(tcpPayload));
-            call Sender.send(sendPackage, getTableIndex(Table, synSocket -> dest.addr).hopTo);
+            dbg("general", "Getting TCP Package Ready\n");
+            makeTCPPack(&tcpPayload, synSocket.src, addr->port, seq, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
+            makePack(&sendPackage, TOS_NODE_ID, synSocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
+            call Sender.send(sendPackage, getTableIndex(&confirmedTable, synSocket.dest.addr).hopTo);
+            dbg("general", "TCP Package Sent. Seq: %d\n",call sequencer.getSeq());
             call sequencer.updateSeq();
-            synSocket->state = SYN_SENT;
+            synSocket.state = SYN_SENT;
+            call socketHash.remove(fd);
+            call socketHash.insert(fd, synSocket);
             return SUCCESS;
         }
         else return FAIL;
@@ -414,14 +460,17 @@ implementation {
     */
    command error_t Transport.listen(socket_t fd)
    {
-       socket_t fileD;
-       socket_store_t* socket;
-       if(socketHash.contains(fd))
+       //socket_t fileD;
+       
+       socket_store_t socket;
+      // dbg("general", "Listen Called\n");
+       if(call socketHash.contains(fd))
        {
-           socket = socketHash.get(fd);
-           if(socket -> state == CLOSED)
+           //dbg("general", "SocketHash contains fd: %d\n", fd);
+           socket = call socketHash.get(fd);
+           //dbg("general", "Socket obtained\n");
+           if(socket.state == LISTEN)
            {
-               socket -> state = LISTEN;
                return SUCCESS;
            }
        }
