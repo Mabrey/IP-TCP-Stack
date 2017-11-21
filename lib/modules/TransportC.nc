@@ -16,7 +16,7 @@ implementation
    // TransportP.socketHash -> socketHashC;
     //Node.socketHash -> socketHashC;
 
-    components new ListC(socket_port_t, 10) as bookedPortsC;
-    TransportP.bookedPorts -> bookedPortsC;
+    //components new ListC(socket_port_t, 10) as bookedPortsC;
+   // TransportP.bookedPorts -> bookedPortsC;
 
 }

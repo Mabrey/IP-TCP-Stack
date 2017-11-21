@@ -49,6 +49,9 @@ implementation {
     components new HashmapC(socket_store_t, 10) as socketHashC;
     Node.socketHash -> socketHashC;
     TransportP.socketHash -> socketHashC;
+
+    components new ListC(socket_port_t, 10) as bookedPortsC;
+    TransportP.bookedPorts -> bookedPortsC;
    
     //components new ListC(neighbor*,64) as neighborListC;   //create a list for neighbors
    // Node.neighborList->neighborListC;
@@ -64,6 +67,6 @@ implementation {
     Node.sequencer -> sequencerC;
     TransportP.sequencer -> sequencerC;
 
-    components TransportC;
-    Node.Transport -> TransportC;
+    //components TransportC;
+    //Node.Transport -> TransportC;
 }

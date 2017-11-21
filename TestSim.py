@@ -155,7 +155,7 @@ def main():
     s.runTime(10);
     s.cmdTestServer(1, 1);
     s.runTime(10);
-    #s.cmdTestClient(5, 1, 2, 1, 10);
+    s.cmdTestClient(5, 1, 2, 1, 10);
     s.runTime(10);
 
 if __name__ == '__main__':

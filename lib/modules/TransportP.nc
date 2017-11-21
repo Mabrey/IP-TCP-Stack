@@ -318,6 +318,7 @@ implementation {
                 mySocket.state = ESTABLISHED;
                 call socketHash.insert(fileD, mySocket);
                 tcpPack->seq = tcpPack->seq + 1;
+                call Transport.buildPack(&mySocket, confirmedTable, 3);
                 
 
                 dbg("general", "ACK Sent, Socket State: %d \n", mySocket.state);
@@ -327,7 +328,7 @@ implementation {
             case 3: //ACK
                 dbg("general", "ACK Received\n");
                 fileD = findPort(tcpPack -> destPort);
-                if (fileD ==(socket_t) NULL)
+                if (fileD == 0 || fileD == 1)
                 {
                     dbg("general", "Could not find port\n");
                     break;
