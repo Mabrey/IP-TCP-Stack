@@ -5,9 +5,8 @@
 
 
 enum{
-	HEADER_LENGTH = 6,
+	HEADER_LENGTH = 8,
 	TCPPACKET_MAX_PAYLOAD_SIZE = PACKET_MAX_PAYLOAD_SIZE - HEADER_LENGTH,
-	
 };
 
 
@@ -17,7 +16,7 @@ typedef struct TCPpack{
 	uint16_t seq;		
 	uint8_t flag;		
 	uint8_t window;
-	uint8_t payload[PACKET_MAX_PAYLOAD_SIZE];
+	uint16_t payload[TCPPACKET_MAX_PAYLOAD_SIZE/2];
 }TCPpack;
 
 #endif

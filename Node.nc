@@ -43,7 +43,7 @@ module Node{
    uses interface Hashmap<socket_store_t> as socketHash;
    uses interface Timer<TMilli> as NodeTimer;
    uses interface Timer<TMilli> as LSPNodeTimer;
-   uses interface Timer<TMilli> as dijkstraTimer;
+   uses interface Timer<TMilli> as dijkstraTimer; 
    //uses interface Timer<TMilli> as connectAttempt;
    //uses interface Timer<TMilli> as writeTimer;
    uses interface Random as Random;
@@ -68,12 +68,15 @@ implementation{
     bool nodeFired = FALSE;
     bool LSPFired = FALSE;
     bool neighborChange = FALSE;
+    
 
     //Project 3
+    float timeRTT;
     socket_t* socketC;
     socket_t* socketS;
     socket_addr_t* addrC;
     socket_addr_t* addrS;
+    
 
     // Packet handling
     void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
@@ -148,8 +151,8 @@ implementation{
     event void dijkstraTimer.fired(){
         if (LSPFired )
         {
-            dbg(GENERAL_CHANNEL, "Size of Network: %d\n", detectNetworkSize());
-            dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
+            //dbg(GENERAL_CHANNEL, "Size of Network: %d\n", detectNetworkSize());
+            //dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
             dijkstra();
         }
        // dbg(GENERAL_CHANNEL, "Firing DIJKSTRA TIMER\n");
@@ -276,7 +279,7 @@ implementation{
 
                         if (dest == 0)
                         {
-                            dbg(GENERAL_CHANNEL, "No destination to pass to, must drop");
+                            dbg(GENERAL_CHANNEL, "No destination to pass to, must drop\n");
                             return msg;
                         }
 
@@ -298,7 +301,7 @@ implementation{
                     else if(myMsg -> protocol == PROTOCOL_TCP)
                     {
                         if (call Transport.receive(myMsg) == SUCCESS)
-                            dbg("general", "Package handled correctly");
+                            dbg("general", "Package handled correctly\n");
 
                     }
                 }
@@ -309,7 +312,7 @@ implementation{
                     dest = findForwardDest(dest);
                     if (dest == 0)
                     {
-                        dbg(GENERAL_CHANNEL, "No destination to pass to, must drop");
+                        dbg(GENERAL_CHANNEL, "No destination to pass to, must drop\n");
                         return msg;
                     }
                     dbg("flooding", "Passing message from %d meant for %d\n", myMsg->src, myMsg->dest);
@@ -393,8 +396,9 @@ implementation{
             //create the first port to listen with on server side
    }
 
-   event void CommandHandler.setTestClient(uint8_t dest, uint8_t srcPort, uint8_t destPort, uint8_t *transfer)
+   event void CommandHandler.setTestClient(uint8_t dest, uint8_t srcPort, uint8_t destPort, uint16_t transfer)
    {
+        socket_store_t mySocket;
         socket_t fd = call Transport.socket();
         socket_addr_t clientAddr;
         socket_addr_t serverAddr;
@@ -423,9 +427,10 @@ implementation{
                 else
                 {
                     dbg("general", "Connect Attempt Success\n");
-                    //start timer for client write
-                   // call writeTimer.startPeriodic(8000);
-                    //variable of data equal to transfer
+                    mySocket = call socketHash.get(fd);
+                    call socketHash.remove(fd); 
+                    call Transport.updateMaxTransfer(transfer, &mySocket);
+                    call socketHash.insert(fd, mySocket);
                 }
                 //else dbg("general", "Connect Attempt Failed");
 

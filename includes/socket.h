@@ -38,6 +38,7 @@ typedef struct socket_store_t{
     enum socket_state state;
     socket_port_t src;
     socket_addr_t dest;
+    uint16_t seqStart;
 
     // This is the sender portion.
     uint8_t sendBuff[SOCKET_BUFFER_SIZE];
@@ -52,6 +53,7 @@ typedef struct socket_store_t{
     uint8_t nextExpected;
 
     uint16_t RTT;
+    uint16_t maxTransfer;
     uint8_t effectiveWindow;
 }socket_store_t;
 

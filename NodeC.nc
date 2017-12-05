@@ -20,14 +20,21 @@ implementation {
     components new TimerMilliC() as NodeTimerC;
     components new TimerMilliC() as LSPNodeTimerC;
     components new TimerMilliC() as dijkstraTimerC;
+    components new TimerMilliC() as TimeoutTimerC;
+    components new TimerMilliC() as WriteTimerC;
+    components new TimerMilliC() as ReadTimerC;
+    
+   
 
     Node -> MainC.Boot;
-
     Node.Receive -> GeneralReceive;
 
     Node.NodeTimer-> NodeTimerC;
     Node.LSPNodeTimer -> LSPNodeTimerC;
     Node.dijkstraTimer -> dijkstraTimerC;
+    TransportP.TimeoutTimer -> TimeoutTimerC;
+    TransportP.WriteTimer -> WriteTimerC;
+    TransportP.ReadTimer -> ReadTimerC;
 
     components TransportP;
     Node.Transport -> TransportP;
