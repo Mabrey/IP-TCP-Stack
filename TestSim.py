@@ -14,6 +14,8 @@ class TestSim:
     CMD_ROUTE_DUMP=3
     CMD_TEST_CLIENT = 4
     CMD_TEST_SERVER = 5
+    CMD_LOGIN = 7
+    CMD_SET_APP_SERVER = 8
 
     # CHANNELS - see includes/channels.h
     COMMAND_CHANNEL="command";
@@ -126,13 +128,20 @@ class TestSim:
         print 'Adding Channel', channelName;
         self.t.addChannel(channelName, out);
 
-    def cmdTestServer(self, addr, port):
-        print 'Creating Test Server at', addr;
+    def testServer(self, addr, port):
+        print "Test Server: ", addr;
         self.sendCMD(self.CMD_TEST_SERVER, addr, "{0}".format(chr(port)));
 
-    def cmdTestClient(self, src, dest, srcPort, destPort,  transfer):
-        print "Creating Test Client at", src;
+    def testClient(self, src, dest, srcPort, destPort,  transfer):
+        print "Test Client: ", src;
         self.sendCMD(self.CMD_TEST_CLIENT, src, "{0}{1}{2}{3}".format(chr(dest), chr(srcPort), chr(destPort), chr(transfer)));
+
+    def setAppServer(self, src):
+        self.sendCMD(self.CMD_SET_APP_SERVER, src, "Creating Server");
+
+    def logIn(self, src, srcPort, login):
+        self.sendCMD(self.CMD_LOGIN, src, "{0}{1}".format(chr(srcPort),login));
+        
 
 
 def main():
@@ -147,15 +156,16 @@ def main():
     s.addChannel(s.FLOODING_CHANNEL);
 
     s.runTime(200);
-    s.ping(1, 5, "I'm pinging here!");
+    #s.ping(1, 5, "I'm pinging here!");
     s.runTime(10)
-    s.ping(9,1, "Hey");
+    #s.ping(9,1, "Hey");
     s.runTime(10);
-    s.ping(2,8, "Hola");
+    #s.ping(2,8, "Hola");
     s.runTime(10);
-    s.cmdTestServer(1, 1);
+    s.setAppServer(1);
     s.runTime(10);
-    s.cmdTestClient(5, 1, 2, 1, 100);
+    #s.testClient(5, 1, 2, 1, 100);
+    s.logIn(5, 3,"mabrey\r\n")
     s.runTime(10);
     s.runTime(1000);
 

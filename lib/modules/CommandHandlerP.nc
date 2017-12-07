@@ -77,6 +77,16 @@ implementation{
                 dbg(COMMAND_CHANNEL, "Command Type: Server\n");
                 signal CommandHandler.setTestServer(buff[0]);
                 break;
+            
+            case CMD_SET_APP_SERVER:
+                dbg(COMMAND_CHANNEL, "Command Type: Server\n;");
+                signal CommandHandler.setAppServer();
+                break;
+
+            case CMD_LOGIN:
+                dbg(COMMAND_CHANNEL, "Command Type: Client Login\n");
+                signal CommandHandler.logIn(buff[0], &buff[1]);
+                break;
 
             default:
                 dbg(COMMAND_CHANNEL, "CMD_ERROR: \"%d\" does not match any known commands.\n", msg->id);

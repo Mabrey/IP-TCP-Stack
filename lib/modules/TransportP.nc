@@ -437,11 +437,37 @@ implementation {
         call Transport.initializeSocket(&newSocket);
         newSocket.state = LISTEN;
         call socketHash.insert(fd, newSocket);
-        //dbg("general", "Server Socket Initialized\n");
-        //dbg("general", "Hashmap size: %d \n", call socketHash.size());
-        //dbg("general", "COPY\n");
+    }
 
+    command void Transport.createServerSocketP(int port)
+    {
+        socket_t fd = 1; 
+        int i;
+        socket_store_t newSocket;
+        serverFD[fd] = TRUE;
 
+        call bookedPorts.pushback(port);
+        dbg("general", "SRC: %d\n", port);
+
+        newSocket.state = CLOSED;
+        newSocket.src = port;
+        newSocket.dest.port = 0;
+        newSocket.dest.addr = 0;
+        newSocket.lastWritten = 127;
+        newSocket.lastAck = 127;
+        newSocket.lastSent = 127;
+        newSocket.lastRead = 127;
+        newSocket.lastRcvd = 127;
+        newSocket.nextExpected = 0;
+        newSocket.effectiveWindow = 128;
+
+        for (i = 0; i < 128; i++)
+        {
+            newSocket.rcvdBuff[i] = 0;
+            newSocket.sendBuff[i] = 0;
+        }
+        newSocket.state = LISTEN;
+        call socketHash.insert(fd, newSocket);
     }
 
     /**

@@ -159,18 +159,6 @@ implementation{
         call dijkstraTimer.startPeriodic(1000000);
     }
 
-    //timer is supposed to be implemented, but may not need it?
-/*
-    event void connectAttempt.fired()
-    {
-
-    }
-
-    event void writeTimer.fired()
-    {
-
-    }
-*/ 
     event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
         pack* myMsg=(pack*) payload;
         //dbg("neighbor", "Packet Received from %d\n", myMsg->src);
@@ -366,7 +354,7 @@ implementation{
         dbg("general", "Starting Server\n");
         call Transport.updateTable(confirmedTable);
         call Transport.createServerSocket();
-        //dbg("general", "Hashmap size: %d \n", call socketHash.size());
+        
 
         if(call socketHash.contains(fd))
         {
@@ -374,11 +362,8 @@ implementation{
             newSocket = call socketHash.get(fd);
           //  dbg("general", "socket collected \n");
             
-           
-           //socketAddr.addr = TOS_NODE_ID;
            socketAddr.port = port;
-         //  dbg("general", "New socket state: %d\n", newSocket.state);
-         //  dbg("general", "calling bind and listen\n");
+      
            
            if(call Transport.bind(fd, &socketAddr) == SUCCESS && call Transport.listen(fd) == SUCCESS)
            {
@@ -443,9 +428,111 @@ implementation{
 
    }
 
-   event void CommandHandler.setAppServer(){}
+   event void CommandHandler.setAppServer()
+   {
+        socket_t fd = 1;
+        socket_addr_t socketAddr;
+        socket_store_t newSocket;
+        dbg("general", "Starting Server\n");
+        call Transport.updateTable(confirmedTable);
+        call Transport.createServerSocketP(41);
+        //dbg("general", "Hashmap size: %d \n", call socketHash.size());
+
+        if(call socketHash.contains(fd))
+        {
+            newSocket = call socketHash.get(fd);
+           
+            if(call Transport.listen(fd) == SUCCESS)
+            {
+                 dbg("general", "Server is Listening    Server port: %d\n", newSocket.src);           
+            }
+            else dbg("general", "Server failed to start\n");
+        }    
+
+   }
 
    event void CommandHandler.setAppClient(){}
+
+   event void CommandHandler.logIn(uint8_t srcPort, char* login)
+   {
+        socket_store_t mySocket;
+        socket_t fd = 0;
+        socket_addr_t clientAddr;
+        socket_addr_t serverAddr;
+        error_t check = FAIL;
+        char cmd[5];
+        char username[32];
+        int i, j, k;
+        int spaceCount = 0;
+        int count = 0;
+        bool endln = FALSE;
+        
+        
+        dbg("general", "Creating Client\n");
+        //dbg("general", "Username size: %d\n", sizeof(username));
+        i = 0;
+        while (!endln) {
+			if (login[i] == '\n') {
+				mySocket.sendBuff[i] = login[i];
+				endln = TRUE;
+			}
+			else {
+				mySocket.sendBuff[i] = login[i];
+                i++;
+            }
+        }
+        dbg("general", "username: %c\n", username[0]);
+        mySocket.state = CLOSED;
+        mySocket.src = srcPort;
+        mySocket.dest.port = 0;
+        mySocket.dest.addr = 0;
+        mySocket.lastWritten = 127;
+        mySocket.lastAck = 127;
+        mySocket.lastSent = 127;
+        mySocket.lastRead = 127;
+        mySocket.lastRcvd = 127;
+        mySocket.nextExpected = 0;
+        mySocket.effectiveWindow = 128;
+        //memcpy(mySocket.sendBuff, username, )
+
+        for (i = 0; i < 128; i++)
+        {
+            mySocket.rcvdBuff[i] = 0;
+            mySocket.sendBuff[i] = 0;
+        }
+
+         if(call socketHash.size() < 10)
+        {
+            do
+            {
+                fd = (call Random.rand16() % 11);
+            }while(fd == 0 || fd == 1 ||call socketHash.contains(fd));
+
+            call socketHash.insert(fd, mySocket);
+            //dbg("general", "SRC: %d\n", newSocket.src);
+        }
+
+        
+
+        if (fd != 0 && fd != 1)
+        {
+            dbg("general", "Created Client\n");
+            clientAddr.addr = TOS_NODE_ID;
+            call Transport.updateTable(confirmedTable);
+            serverAddr.addr = 1;
+            serverAddr.port = 41;
+            check = call Transport.connect(fd, &serverAddr);
+            if ( check == FAIL)
+                dbg("general", "Transport Connect Fail\n");
+            else
+                dbg("general", "Connect Attempt Success\n");
+            
+            //else dbg("general", "Connect Attempt Failed");
+
+            
+        }
+        else dbg("general", "SocketHash is full");
+   }
 
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, uint8_t* payload, uint8_t length){
       Package->src = src;
