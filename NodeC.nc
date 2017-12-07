@@ -23,6 +23,7 @@ implementation {
     components new TimerMilliC() as TimeoutTimerC;
     components new TimerMilliC() as WriteTimerC;
     components new TimerMilliC() as ReadTimerC;
+    components new TimerMilliC() as CloseTimerC;
     
    
 
@@ -35,6 +36,7 @@ implementation {
     TransportP.TimeoutTimer -> TimeoutTimerC;
     TransportP.WriteTimer -> WriteTimerC;
     TransportP.ReadTimer -> ReadTimerC;
+    TransportP.CloseTimer -> CloseTimerC;
 
     components TransportP;
     Node.Transport -> TransportP;

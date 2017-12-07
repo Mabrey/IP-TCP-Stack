@@ -155,7 +155,7 @@ def main():
     s.runTime(10);
     s.cmdTestServer(1, 1);
     s.runTime(10);
-    s.cmdTestClient(5, 1, 2, 1, 50);
+    s.cmdTestClient(5, 1, 2, 1, 200);
     s.runTime(10);
     s.runTime(1000);
 

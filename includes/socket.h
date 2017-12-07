@@ -15,6 +15,10 @@ enum socket_state{
     SYN_SENT = 3,
     SYN_RCVD = 4,
     CLOSE_WAIT = 5,
+    FIN_WAIT_1 = 6,
+    FIN_WAIT_2 = 7,
+    TIME_WAIT = 8,
+    LAST_ACK = 9,
 };
 
 

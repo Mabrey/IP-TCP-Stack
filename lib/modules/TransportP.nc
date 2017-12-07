@@ -16,6 +16,7 @@ module TransportP{
     uses interface Timer<TMilli> as TimeoutTimer;
     uses interface Timer<TMilli> as WriteTimer;
     uses interface Timer<TMilli> as ReadTimer;
+    uses interface Timer<TMilli> as CloseTimer;
 
 }
 
@@ -143,6 +144,7 @@ implementation {
                         printf("buff: %d\n", buff8[k]);
                     }
                     */
+                    dbg("general", "Count = %d\n", count);
                     call Transport.write(i, buff8, count);
                     mySocket = call socketHash.get(i);
                     //call Transport.dataSend(i);
@@ -183,6 +185,17 @@ implementation {
                         makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &payload, sizeof(payload));
                         call sequencer.updateSeq();
                         call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
+
+                        if (mySocket.state == 9)
+                        {
+                            dbg("general", "Sending FIN\n");
+                            makeTCPPack(&payload, mySocket.src, mySocket.dest.port, mySocket.nextExpected, 4, mySocket.effectiveWindow, 0, 0);
+                            makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &payload, sizeof(payload));
+                            call sequencer.updateSeq();
+                            call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
+                            call Transport.close(i);
+
+                        }
                     }
                 
                 }
@@ -190,6 +203,22 @@ implementation {
         }
 
     }
+
+    event void CloseTimer.fired()
+    {
+        int i = 0;
+        socket_store_t mySocket;
+        for(i = 2; i <= 10; i++)
+        {
+            if (call socketHash.contains(i))
+            {
+                mySocket = call socketHash.get(i);
+                if(mySocket.state == 8)
+                    call Transport.close(i);
+            }
+        }
+    }
+        
 
     command error_t Transport.dataSend(socket_t fd)
     {
@@ -200,13 +229,15 @@ implementation {
         uint16_t top = 0;
         uint16_t bot = 0;
         uint16_t completeNum = 0;
+        bool msgFin = FALSE;
         int i, j, start;
         int window;
         dbg("general", "FileD: %d\n", fd);
 
-        call socketHash.remove(fd);
+        //call socketHash.remove(fd);
         //dbg("general", "Last Written: %d        Last Sent: %d\n", mySocket.lastWritten, mySocket.lastSent);
         //find count between lastSent and lastWritten
+
         if (mySocket.lastWritten >= mySocket.lastSent)
             window = mySocket.lastWritten - mySocket.lastSent;
         
@@ -218,6 +249,9 @@ implementation {
 
         if (window == 0)
             return FAIL;
+
+        if (window % 2 == 1)
+            window--;
         //pull from sendBuff to create the payload since payload is in
         //16 bit increments, but buff is in 8, we take 2 buff slots per
         //number and use bitshift to concatenate the top and bot. Update lastSent. 
@@ -226,12 +260,15 @@ implementation {
         start = (mySocket.lastSent + 1) % 128;
         for (i = start; i < start + window; i += 2)
         {
-            bot = mySocket.sendBuff[i];
-            printf("bot = %d\n", bot);
-            top = mySocket.sendBuff[i + 1];
+            bot = mySocket.sendBuff[(i)%128];
+            
+            top = mySocket.sendBuff[(i + 1)%128];
             top <<= 8;
             completeNum = top | bot;
             outbuff[j] = completeNum;
+            printf("SendBuff = %d,   bot: %d,    top:%d\n", completeNum, bot, top);
+            if (completeNum == mySocket.maxTransfer)
+                msgFin = TRUE;
             j++;
         }
         mySocket.lastSent = (mySocket.lastSent + window) % 128;
@@ -242,6 +279,7 @@ implementation {
             for(i = mySocket.lastSent; i < mySocket.lastSent + window; i++)
                 printf("Buff = %d\n", mySocket.sendBuff[i]);
         */
+        call socketHash.remove(fd);
         call socketHash.insert(fd, mySocket);
         dbg("general", "Window = %d\n", window);
         //create a TCP packet
@@ -249,22 +287,28 @@ implementation {
         makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
         call sequencer.updateSeq();
         call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
+
+        if (msgFin)
+        {
+            makeTCPPack(&tcpPayload, mySocket.src, mySocket.dest.port, mySocket.nextExpected, 4, window, 0, 0);
+            makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
+            call sequencer.updateSeq();
+            call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
+            call Transport.close(fd);
+        }
         return SUCCESS;
         
     }
 
     command uint16_t Transport.storeData(socket_t fd, uint16_t *buff16, int bufflen)
     {
-        socket_store_t mySocket = call socketHash.get(fd);
+        socket_store_t mySocket;
         int i, j;
         int buffFree;
         int startWrite;
         uint8_t buff8[12];
         if (call socketHash.contains(fd))
-        {
             mySocket = call socketHash.get(fd);
-            
-        }
 
         else
         {
@@ -297,6 +341,7 @@ implementation {
 
         //find starting place to write in buffer. different for adding to buffer rather than beginning from blank buffer
         startWrite = mySocket.lastRcvd + 1;
+        printf("Last Rcvd: %d,   StartWrite: %d\n", mySocket.lastRcvd, startWrite);
         if (mySocket.lastRcvd == mySocket.lastRead && mySocket.lastRcvd == mySocket.lastSent 
             && mySocket.lastRcvd == 0 && mySocket.sendBuff[0] == 0)
             startWrite = 0;
@@ -311,7 +356,7 @@ implementation {
             //temp[i] = buff[i];
             j = (startWrite + i) % 128;
             mySocket.rcvdBuff[j] = buff8[i];
-            printf("buff8[%d] = %d\n", i, buff8[i]);
+            printf("rcvdBuff[%d] = %d\n", j, buff8[i]);
             
         }
         mySocket.lastRcvd = j;
@@ -523,10 +568,7 @@ implementation {
         socket_store_t mySocket;
 
         if (call socketHash.contains(fd))
-        {
             mySocket = call socketHash.get(fd);
-            call socketHash.remove(fd);
-        }
 
         else
         {
@@ -534,19 +576,20 @@ implementation {
             return 0;
         }
 
+        dbg("general", "last Written: %d    last ack: %d\n", mySocket.lastWritten, mySocket.lastAck);
         //checking how much buff space is free
 
         //check if last written = lastAck AKA the whole buffer is empty
         if (mySocket.lastWritten == mySocket.lastAck )
-            buffFree = SOCKET_BUFFER_SIZE - 1;
+            buffFree = SOCKET_BUFFER_SIZE - 2;
         
         //last written is greater than last ack
         else if (mySocket.lastWritten > mySocket.lastAck)
-            buffFree = SOCKET_BUFFER_SIZE - (mySocket.lastWritten - mySocket.lastAck) -  1;
+            buffFree = SOCKET_BUFFER_SIZE - (mySocket.lastWritten - mySocket.lastAck) -  2;
         
         //last ack is greater than last written, last written has wrapped around
         else if (mySocket.lastWritten < mySocket.lastAck)
-            buffFree = mySocket.lastAck - mySocket.lastWritten - 1;
+            buffFree = mySocket.lastAck - mySocket.lastWritten - 2;
         
         //check if bufflen >= buffFree
         if (bufflen > buffFree)
@@ -555,9 +598,10 @@ implementation {
         //the buffer is full, and cannot accept anything
         if (bufflen == 0)
             return 0;
-
+        printf("BuffFree: %d    LastAck: %d\n", buffFree, mySocket.lastAck);
         //find starting place to write in buffer. different for adding to buffer rather than beginning from blank buffer
         startWrite = mySocket.lastWritten + 1;
+        printf("Last Written: %d,   StartWrite: %d\n", mySocket.lastWritten, startWrite);
     /*    if (mySocket.lastWritten == mySocket.lastAck && mySocket.lastWritten == mySocket.lastSent 
             && mySocket.lastWritten == 0 && mySocket.sendBuff[0] == 0)
             startWrite = 0;
@@ -568,11 +612,14 @@ implementation {
             //temp[i] = buff[i];
             j = (startWrite + i) % 128;
             mySocket.sendBuff[j] = buff[i];
+            printf("Write To sendBuff[%d]: %d\n", j, buff[i]);
         }
         mySocket.lastWritten = j;
+        
     //    printf("last written: %d    buff[0]: %d    buff[1]:%d\n", mySocket.lastWritten, mySocket.sendBuff[0], mySocket.sendBuff[1]);
     //    printf("                    buff[2]: %d    buff[3]:%d\n", mySocket.sendBuff[2], mySocket.sendBuff[3]);
         //add socket back to hashmap and return how many things were added to sendBuff
+        call socketHash.remove(fd);
         call socketHash.insert(fd, mySocket);
 
         return bufflen;
@@ -598,6 +645,7 @@ implementation {
    {
         int i, j, k, buffUsed;
         int count = 0;
+        int printCount = 1;
         socket_store_t mySocket;
         uint16_t tempNextVal;
         uint16_t tempNextSwap;
@@ -609,7 +657,7 @@ implementation {
         if (call socketHash.contains(fd))
         {
             mySocket = call socketHash.get(fd);
-            call socketHash.remove(fd);
+            //call socketHash.remove(fd);
         }
 
         else
@@ -647,12 +695,13 @@ implementation {
             //for(j = 1; j < buffUsed; j++)
             //check within the buff for matching the next expected result
             //if found, count++ and lastRead++, then print the number
-            for(j = (mySocket.lastRead + 1)%128; j <= mySocket.lastRcvd; j += 2)
+            for(j = (mySocket.lastRead + 1)%128; j != mySocket.lastRcvd ; j += 2)
             {
                 bot = mySocket.rcvdBuff[j];
                 top = mySocket.rcvdBuff[j+1];
                 top <<= 8;
                 completeNum = top | bot;
+                dbg("general", "Num: %d,    Temp:%d\n", completeNum, tempNextVal);
                 if (completeNum == tempNextVal )
                 {
                     k = j;
@@ -678,10 +727,11 @@ implementation {
                 if (found)
                 {
                     printf("%d, ", tempNextVal);
-                    if ( (tempNextVal % 6 ) == 0|| ((j + 1) == mySocket.lastRcvd))
+                    if ( (printCount % 7 ) == 0|| ((j + 1) == mySocket.lastRcvd))
                         printf("\n");
                     mySocket.lastRead =  (mySocket.lastRead+2)%128; 
                     count++;
+                    printCount++;
                     break;
                 }
                
@@ -693,7 +743,10 @@ implementation {
             }
             
         }
+        call socketHash.remove(fd);
         call socketHash.insert(fd, mySocket);
+
+       
         return count;
 
    }
@@ -735,7 +788,8 @@ implementation {
                     call socketHash.remove(fileD);
                     mySocket.dest.port = tcpPack -> srcPort;
                     mySocket.dest.addr = package -> src; 
-                    mySocket.nextExpected = tcpPack -> seq;
+                    mySocket.seqStart = tcpPack -> seq;
+                    mySocket.nextExpected =  tcpPack -> seq - mySocket.seqStart;
                     dbg("general", "SrcPort: %d\n", tcpPack -> srcPort);
                     tcpPack->seq = tcpPack->seq + 1;
                     mySocket.state = SYN_RCVD;
@@ -804,7 +858,11 @@ implementation {
                     dbg("general", "ACK Sent, Socket State: %d \n", mySocket.state);
 
                     for (i = 0; i < 3; i++)
-                        call Transport.dataSend(fileD);
+                    {
+                        if (mySocket.state == 2)
+                            call Transport.dataSend(fileD);
+                    }
+                       
                    
                     //After ACK, assume it got the message and start sending data. 
                 }
@@ -846,7 +904,7 @@ implementation {
                     dbg("general", "Socket Established\n");    
                     dbg("general", "Waiting for Data...\n");
                     //dbg("general", "RTT: %d\n", rtt);
-                    call ReadTimer.startPeriodicAt(5000, 100000);
+                    call ReadTimer.startPeriodicAt(5000, 7000);
                     break;
                 }
 
@@ -854,20 +912,43 @@ implementation {
                 if (mySocket.state == ESTABLISHED)
                 {
                     call socketHash.remove(fileD);
-                    mySocket.lastAck = mySocket.seqStart - (tcpPack -> seq);
+                    mySocket.lastAck = ((tcpPack -> seq) - 1); //- mySocket.seqStart);
+                    mySocket.lastAck = mySocket.lastAck % 128;
+
+                    dbg("general", "Last Ack = %d, seqStart = %d, seq = %d\n", mySocket.lastAck, mySocket.seqStart, tcpPack -> seq);
+
                     mySocket.effectiveWindow = tcpPack -> window;
                     call socketHash.insert(fileD, mySocket);
-                    call Transport.dataSend(fileD);
+                    for (i = 0; i < 3; i++)
+                        call Transport.dataSend(fileD);
                     
+                }
+
+                if (mySocket.state == 6)
+                {
+                    call Transport.close(fileD);
                 }
                 
 
                 break;
 
             case 4: //FIN
-            
                 dbg("general", "FIN Received\n");
+                fileD = findPort(tcpPack -> destPort);
+                mySocket = call socketHash.get(fileD);
+                if (mySocket.state == 2)
+                {    
+                    mySocket.state = 5;
+                    call Transport.buildPack(&mySocket, confirmedTable, 6, 0);
+                    call socketHash.remove(fileD);
+                    call socketHash.insert(fileD, mySocket);
+                    //call Transport.close(fileD);
+                }
 
+                else if (mySocket.state == 6)
+                    dbg("general", "Initiating Close\n");
+                    call Transport.close(fileD);
+                
                 break;
 
             case 5: //DATA
@@ -891,7 +972,14 @@ implementation {
                     printf("Stored = %d\n",call Transport.storeData(fileD, tcpPack -> payload, tcpPack->window));
                 }
 
-                 
+                break;
+
+            case 6: //FIN_ACK
+                
+                fileD = findPort(tcpPack -> destPort);
+                dbg("general", "FIN_ACK Received    FD = %d\n", fileD);
+                //fileD = findPort(tcpPack -> destPort);
+                call Transport.close(fileD);
 
                 break;
 
@@ -928,6 +1016,7 @@ implementation {
             synSocket = call socketHash.get(fd);
             synSocket.dest.port = addr -> port;
             synSocket.dest.addr = addr -> addr;
+            synSocket.seqStart = seq;
             //make a tcp packet, then add the header of the "IP" layer
             dbg("general", "Getting TCP Package Ready\n");
             makeTCPPack(&tcpPayload, synSocket.src, addr->port, seq, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
@@ -959,6 +1048,98 @@ implementation {
     */
    command error_t Transport.close(socket_t fd)
    {
+        socket_store_t mySocket;
+        int i = 0;
+        if (call socketHash.contains(fd))
+            mySocket = call socketHash.get(fd);
+        else  dbg("general", "Couldnt Find FD\n");
+
+         dbg("general", "Close: %d\n", mySocket.state);
+        switch (mySocket.state)
+        {
+            //if established, move to fin_wait_1
+            case 2:
+                mySocket.state = 6;
+                dbg("general","FIN_WAIT_1 intiated\n");
+                call WriteTimer.stop();
+                call socketHash.remove(fd);
+                call socketHash.insert(fd, mySocket);
+
+            break;
+
+            //if close_wait, move to last_ack
+            case 5:
+                dbg("general","Last_ACK intiated\n");
+                mySocket.state = 9;
+                call socketHash.remove(fd);
+                call socketHash.insert(fd, mySocket);
+            break;
+
+            //if fin_wait_1, move to fin_wait_2
+            case 6:
+                dbg("general","FIN_WAIT_2 intiated\n");
+                mySocket.state = 7;
+                call socketHash.remove(fd);
+                call socketHash.insert(fd, mySocket);
+            break;
+
+            //if fin_wait_2, move to time_wait
+            case 7:
+                 dbg("general","TIME_WAIT intiated\n");
+                mySocket.state = 8;
+                call socketHash.remove(fd);
+                call socketHash.insert(fd, mySocket);
+                call CloseTimer.startOneShot(5000);
+            break;
+
+            //if time_wait, move to closed
+            case 8:
+                //Set client socket free, free the used ports and fd.
+                //may shut down entire client if it doesn't have another socket.
+                dbg("general","Client Close intiated\n");
+                mySocket.state = 0;
+                for (i = 0; i < call bookedPorts.size(); i++)
+                {
+                    if (mySocket.src == call bookedPorts.get(i))
+                    {
+                        call bookedPorts.remove(i);
+                        break;
+                    }
+                }
+                call socketHash.remove(fd);
+                clientFD[fd] = FALSE;
+                dbg("general", "Client Socket Closed\n");
+                //call socketHash.insert(fd, mySocket);
+            break;
+
+            //if last_ack, move to closed
+            case 9:
+                //Set server socket free, free the used ports and fd 
+                //server won't completely shut down as it still has a listen socket.
+                dbg("general","Server Close intiated\n");
+                mySocket.state = 0;
+                for (i = 0; i < call bookedPorts.size(); i++)
+                {
+                    if (mySocket.src == call bookedPorts.get(i))
+                    {
+                        call bookedPorts.remove(i);
+                        break;
+                    }
+                }
+                call socketHash.remove(fd);
+                serverFD[fd] = FALSE;
+                dbg("general", "Server Socket Closed\n");
+                //call socketHash.insert(fd, mySocket);
+            break;
+
+
+            default:
+
+            break;
+        }
+      
+
+
       
 
    }
@@ -974,8 +1155,6 @@ implementation {
     */
    command error_t Transport.release(socket_t fd)
    {
-
-
    }
 
    /**
