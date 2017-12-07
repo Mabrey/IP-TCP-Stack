@@ -144,7 +144,7 @@ implementation {
                         printf("buff: %d\n", buff8[k]);
                     }
                     */
-                    dbg("general", "Count = %d\n", count);
+                    //dbg("general", "Count = %d\n", count);
                     call Transport.write(i, buff8, count);
                     mySocket = call socketHash.get(i);
                     //call Transport.dataSend(i);
@@ -232,7 +232,7 @@ implementation {
         bool msgFin = FALSE;
         int i, j, start;
         int window;
-        dbg("general", "FileD: %d\n", fd);
+        //dbg("general", "FileD: %d\n", fd);
 
         //call socketHash.remove(fd);
         //dbg("general", "Last Written: %d        Last Sent: %d\n", mySocket.lastWritten, mySocket.lastSent);
@@ -266,7 +266,7 @@ implementation {
             top <<= 8;
             completeNum = top | bot;
             outbuff[j] = completeNum;
-            printf("SendBuff = %d,   bot: %d,    top:%d\n", completeNum, bot, top);
+            //printf("SendBuff = %d,   bot: %d,    top:%d\n", completeNum, bot, top);
             if (completeNum == mySocket.maxTransfer)
                 msgFin = TRUE;
             j++;
@@ -281,7 +281,7 @@ implementation {
         */
         call socketHash.remove(fd);
         call socketHash.insert(fd, mySocket);
-        dbg("general", "Window = %d\n", window);
+        //dbg("general", "Window = %d\n", window);
         //create a TCP packet
         makeTCPPack(&tcpPayload, mySocket.src, mySocket.dest.port, mySocket.nextExpected, 5, window, outbuff, sizeof(outbuff));
         makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
@@ -315,7 +315,7 @@ implementation {
             dbg("general", "Socket not contained, could not store data\n");
             return 0;
         }
-         printf("bufflen = %d\n", bufflen);
+        //printf("bufflen = %d\n", bufflen);
         //checking how much buff space is free
 
         //check if last written = lastRead AKA the whole buffer is empty
@@ -334,14 +334,14 @@ implementation {
         if (bufflen > buffFree)
             bufflen = buffFree;
 
-        printf("buffFree = %d\n", buffFree);
+        //printf("buffFree = %d\n", buffFree);
         //the buffer is full, and cannot accept anything
         if (bufflen == 0)
             return 0;
 
         //find starting place to write in buffer. different for adding to buffer rather than beginning from blank buffer
         startWrite = mySocket.lastRcvd + 1;
-        printf("Last Rcvd: %d,   StartWrite: %d\n", mySocket.lastRcvd, startWrite);
+        //printf("Last Rcvd: %d,   StartWrite: %d\n", mySocket.lastRcvd, startWrite);
         if (mySocket.lastRcvd == mySocket.lastRead && mySocket.lastRcvd == mySocket.lastSent 
             && mySocket.lastRcvd == 0 && mySocket.sendBuff[0] == 0)
             startWrite = 0;
@@ -350,13 +350,13 @@ implementation {
 
         //printf("start: %d\n", startWrite);
         //write to the send buffer and update its last written;
-        printf("bufflen = %d\n", bufflen);
+        //printf("bufflen = %d\n", bufflen);
         for (i = 0; i < bufflen; i++)
         {
             //temp[i] = buff[i];
             j = (startWrite + i) % 128;
             mySocket.rcvdBuff[j] = buff8[i];
-            printf("rcvdBuff[%d] = %d\n", j, buff8[i]);
+            //printf("rcvdBuff[%d] = %d\n", j, buff8[i]);
             
         }
         mySocket.lastRcvd = j;
@@ -576,7 +576,7 @@ implementation {
             return 0;
         }
 
-        dbg("general", "last Written: %d    last ack: %d\n", mySocket.lastWritten, mySocket.lastAck);
+        //dbg("general", "last Written: %d    last ack: %d\n", mySocket.lastWritten, mySocket.lastAck);
         //checking how much buff space is free
 
         //check if last written = lastAck AKA the whole buffer is empty
@@ -598,10 +598,10 @@ implementation {
         //the buffer is full, and cannot accept anything
         if (bufflen == 0)
             return 0;
-        printf("BuffFree: %d    LastAck: %d\n", buffFree, mySocket.lastAck);
+        //printf("BuffFree: %d    LastAck: %d\n", buffFree, mySocket.lastAck);
         //find starting place to write in buffer. different for adding to buffer rather than beginning from blank buffer
         startWrite = mySocket.lastWritten + 1;
-        printf("Last Written: %d,   StartWrite: %d\n", mySocket.lastWritten, startWrite);
+       // printf("Last Written: %d,   StartWrite: %d\n", mySocket.lastWritten, startWrite);
     /*    if (mySocket.lastWritten == mySocket.lastAck && mySocket.lastWritten == mySocket.lastSent 
             && mySocket.lastWritten == 0 && mySocket.sendBuff[0] == 0)
             startWrite = 0;
@@ -612,7 +612,7 @@ implementation {
             //temp[i] = buff[i];
             j = (startWrite + i) % 128;
             mySocket.sendBuff[j] = buff[i];
-            printf("Write To sendBuff[%d]: %d\n", j, buff[i]);
+            //printf("Write To sendBuff[%d]: %d\n", j, buff[i]);
         }
         mySocket.lastWritten = j;
         
@@ -701,7 +701,7 @@ implementation {
                 top = mySocket.rcvdBuff[j+1];
                 top <<= 8;
                 completeNum = top | bot;
-                dbg("general", "Num: %d,    Temp:%d\n", completeNum, tempNextVal);
+                //dbg("general", "Num: %d,    Temp:%d\n", completeNum, tempNextVal);
                 if (completeNum == tempNextVal )
                 {
                     k = j;
@@ -769,7 +769,7 @@ implementation {
         TCPpack* tcpPack;
         tcpPack = (TCPpack*) package->payload;
         //int i;
-        dbg("general", "Flag = %d\n", tcpPack->flag);
+        //dbg("general", "Flag = %d\n", tcpPack->flag);
         switch (tcpPack->flag)
         {
 
@@ -915,7 +915,7 @@ implementation {
                     mySocket.lastAck = ((tcpPack -> seq) - 1); //- mySocket.seqStart);
                     mySocket.lastAck = mySocket.lastAck % 128;
 
-                    dbg("general", "Last Ack = %d, seqStart = %d, seq = %d\n", mySocket.lastAck, mySocket.seqStart, tcpPack -> seq);
+                    //dbg("general", "Last Ack = %d, seqStart = %d, seq = %d\n", mySocket.lastAck, mySocket.seqStart, tcpPack -> seq);
 
                     mySocket.effectiveWindow = tcpPack -> window;
                     call socketHash.insert(fileD, mySocket);
@@ -968,8 +968,8 @@ implementation {
                 if (mySocket.state == ESTABLISHED)
                 {
                     //server is ready to take data, push to buffer
-                    dbg("general", "Storing DATA        window = %d\n", tcpPack->window);
-                    printf("Stored = %d\n",call Transport.storeData(fileD, tcpPack -> payload, tcpPack->window));
+                    dbg("general", "Storing DATA into server\n");
+                    call Transport.storeData(fileD, tcpPack -> payload, tcpPack->window);
                 }
 
                 break;
@@ -1054,7 +1054,7 @@ implementation {
             mySocket = call socketHash.get(fd);
         else  dbg("general", "Couldnt Find FD\n");
 
-         dbg("general", "Close: %d\n", mySocket.state);
+        //dbg("general", "Close: %d\n", mySocket.state);
         switch (mySocket.state)
         {
             //if established, move to fin_wait_1

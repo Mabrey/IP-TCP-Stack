@@ -403,6 +403,7 @@ implementation{
         socket_addr_t clientAddr;
         socket_addr_t serverAddr;
         error_t check = FAIL;
+        dbg("general", "Transfer: %d\n", transfer);
         if (fd != 0 && fd != 1)
         {
             dbg("general", "Created Client\n");
