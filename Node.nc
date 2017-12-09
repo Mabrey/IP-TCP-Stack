@@ -7,6 +7,7 @@
  *
  */
 #include <Timer.h>
+#include <string.h>
 #include "includes/command.h"
 #include "includes/packet.h"
 #include "includes/CommandMsg.h"
@@ -457,51 +458,37 @@ implementation{
    {
         socket_store_t mySocket;
         socket_t fd = 0;
-        socket_addr_t clientAddr;
         socket_addr_t serverAddr;
         error_t check = FAIL;
-        char cmd[5];
-        char username[32];
-        int i, j, k;
+        int i;
         int spaceCount = 0;
         int count = 0;
         bool endln = FALSE;
-        
+        uint8_t seq;
         
         dbg("general", "Creating Client\n");
-        //dbg("general", "Username size: %d\n", sizeof(username));
-        i = 0;
-        while (!endln) {
-			if (login[i] == '\n') {
-				mySocket.sendBuff[i] = login[i];
-				endln = TRUE;
-			}
-			else {
-				mySocket.sendBuff[i] = login[i];
-                i++;
-            }
-        }
-        dbg("general", "username: %c\n", username[0]);
+
+        
+
+        mySocket.seqStart = call Random.rand16()%128; 
         mySocket.state = CLOSED;
         mySocket.src = srcPort;
-        mySocket.dest.port = 0;
-        mySocket.dest.addr = 0;
+        mySocket.dest.port = 1;
+        mySocket.dest.addr = 41;
         mySocket.lastWritten = 127;
         mySocket.lastAck = 127;
         mySocket.lastSent = 127;
         mySocket.lastRead = 127;
         mySocket.lastRcvd = 127;
+        mySocket.msgLastWritten = 63;
+        mySocket.msgLastEnd = 63;
+        mySocket.cmdLastWritten = 7;
         mySocket.nextExpected = 0;
         mySocket.effectiveWindow = 128;
-        //memcpy(mySocket.sendBuff, username, )
+        mySocket.endMsg = TRUE;
+        mySocket.cmd = FALSE;
 
-        for (i = 0; i < 128; i++)
-        {
-            mySocket.rcvdBuff[i] = 0;
-            mySocket.sendBuff[i] = 0;
-        }
-
-         if(call socketHash.size() < 10)
+        if(call socketHash.size() < 10)
         {
             do
             {
@@ -509,15 +496,67 @@ implementation{
             }while(fd == 0 || fd == 1 ||call socketHash.contains(fd));
 
             call socketHash.insert(fd, mySocket);
-            //dbg("general", "SRC: %d\n", newSocket.src);
+            dbg("general", "SRC1: %d\n", mySocket.src);
+        } 
+        
+        else return;
+
+
+        printf("seqStart: %d\n", mySocket.seqStart);
+
+        for (i = 0; i < 128; i++)
+        {
+            mySocket.rcvdBuff[i] = 0;
+            mySocket.sendBuff[i] = 0;
         }
 
         
+       //saving message to the sendBuff
+        i = 0;
+        while (!endln) {
+            mySocket.sendBuff[(i*2) % 128] = login[i];
+            seq = (mySocket.seqStart + i) % 255;
+            printf("seq: %d\n", seq);
+            mySocket.sendBuff[((i * 2) + 1) % 128] = seq;
+            mySocket.lastWritten = (mySocket.lastWritten + 1) % 128;
+            printf("LW: %d, i: %d\n", mySocket.lastWritten, i);
+			if (login[i] == '\n')
+				endln = TRUE;
+			else 
+                i++;
+            
+        }
+
+        dbg("general", "Last Written: %d\n", mySocket.lastWritten);
+        endln = FALSE;
+        i = 0;
+        while (!endln)
+        {
+            if (i % 2 == 0)
+            {
+                if (mySocket.sendBuff[i] == 0)
+                    endln = TRUE;
+                else 
+                {
+                    printf("SendBuff[%d]: %c\n", i, mySocket.sendBuff[i]);
+                    i++;
+                }
+            }
+            else 
+            {
+                printf("SendBuff[%d]: %d\n", i, mySocket.sendBuff[i]);
+                i++;
+            }
+             
+        }
+        call socketHash.remove(fd);
+        call socketHash.insert(fd, mySocket);
+
+        dbg("general", "SRC3: %d\n", mySocket.src);
 
         if (fd != 0 && fd != 1)
         {
             dbg("general", "Created Client\n");
-            clientAddr.addr = TOS_NODE_ID;
             call Transport.updateTable(confirmedTable);
             serverAddr.addr = 1;
             serverAddr.port = 41;
@@ -525,13 +564,13 @@ implementation{
             if ( check == FAIL)
                 dbg("general", "Transport Connect Fail\n");
             else
-                dbg("general", "Connect Attempt Success\n");
-            
-            //else dbg("general", "Connect Attempt Failed");
-
-            
+                dbg("general", "Connect Attempt Success\n");    
         }
         else dbg("general", "SocketHash is full");
+
+        dbg("general", "SRC4: %d\n", mySocket.src);
+
+        
    }
 
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, uint8_t* payload, uint8_t length){

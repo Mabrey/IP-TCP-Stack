@@ -8,6 +8,13 @@ enum{
     SOCKET_BUFFER_SIZE = 128,
 };
 
+enum commandType{
+    HELLO = 0,
+    MSG = 1,
+    WHISPER = 2,
+    LIST = 3,
+};
+
 enum socket_state{
     CLOSED = 0,
     LISTEN = 1,
@@ -39,7 +46,13 @@ typedef uint8_t socket_t;
 typedef struct socket_store_t{
     
     uint8_t flag;
+    char name[16];
+    char message[64];
+    char cmdBuff[8];
     enum socket_state state;
+    enum commandType commandT;
+    bool endMsg;
+    bool cmd; 
     socket_port_t src;
     socket_addr_t dest;
     uint16_t seqStart;
@@ -55,6 +68,9 @@ typedef struct socket_store_t{
     uint8_t lastRead;
     uint8_t lastRcvd;
     uint8_t nextExpected;
+    uint8_t msgLastEnd;
+    uint8_t msgLastWritten;
+    uint8_t cmdLastWritten;
 
     uint16_t RTT;
     uint16_t maxTransfer;

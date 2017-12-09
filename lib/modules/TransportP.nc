@@ -227,15 +227,15 @@ implementation {
         uint8_t payloadSize;
         uint16_t outbuff[6];
         uint16_t top = 0;
+        uint16_t topShift = 0;
         uint16_t bot = 0;
         uint16_t completeNum = 0;
-        bool msgFin = FALSE;
         int i, j, start;
         int window;
         //dbg("general", "FileD: %d\n", fd);
 
         //call socketHash.remove(fd);
-        //dbg("general", "Last Written: %d        Last Sent: %d\n", mySocket.lastWritten, mySocket.lastSent);
+        dbg("general", "---Last Written: %d        Last Sent: %d\n", mySocket.lastWritten, mySocket.lastSent);
         //find count between lastSent and lastWritten
 
         if (mySocket.lastWritten >= mySocket.lastSent)
@@ -258,19 +258,22 @@ implementation {
         j = 0;
         
         start = (mySocket.lastSent + 1) % 128;
+        printf("Start = %d\n", start);
+        printf("Buff[0] = %c\n", mySocket.sendBuff[0]);
         for (i = start; i < start + window; i += 2)
         {
             bot = mySocket.sendBuff[(i)%128];
             
             top = mySocket.sendBuff[(i + 1)%128];
-            top <<= 8;
-            completeNum = top | bot;
+            topShift = top << 8;
+            completeNum = topShift | bot;
             outbuff[j] = completeNum;
-            //printf("SendBuff = %d,   bot: %d,    top:%d\n", completeNum, bot, top);
-            if (completeNum == mySocket.maxTransfer)
-                msgFin = TRUE;
+            printf("SendBuff[%d] = %d,   bot: %d,    top:%d     topShift:%d\n", j, outbuff[j], bot, top, topShift);
+            if (bot == "\r" && top == "\n")
+                dbg("general", "End of message\n");
             j++;
         }
+
         mySocket.lastSent = (mySocket.lastSent + window) % 128;
         /*
             for(i = 0; i < window/2; i++)
@@ -288,14 +291,6 @@ implementation {
         call sequencer.updateSeq();
         call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
 
-        if (msgFin)
-        {
-            makeTCPPack(&tcpPayload, mySocket.src, mySocket.dest.port, mySocket.nextExpected, 4, window, 0, 0);
-            makePack(&sendPackage, TOS_NODE_ID, mySocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
-            call sequencer.updateSeq();
-            call Sender.send(sendPackage, getTableIndex(&confirmedTable, mySocket.dest.addr).hopTo);
-            call Transport.close(fd);
-        }
         return SUCCESS;
         
     }
@@ -356,7 +351,7 @@ implementation {
             //temp[i] = buff[i];
             j = (startWrite + i) % 128;
             mySocket.rcvdBuff[j] = buff8[i];
-            //printf("rcvdBuff[%d] = %d\n", j, buff8[i]);
+            printf("rcvdBuff[%d] = %d\n", j, buff8[i]);
             
         }
         mySocket.lastRcvd = j;
@@ -571,6 +566,36 @@ implementation {
 
    }
 
+    command void Transport.clearBuff(socket_t fd)
+    {
+        int i;
+        socket_store_t mySocket;
+        if (call socketHash.contains(fd))
+            mySocket = call socketHash.get(fd);
+
+        else
+            dbg("general", "Socket not contained, could not clear\n");
+
+        for (i = 0; i < 128; i++)
+        {
+            mySocket.sendBuff[i] = 0;
+            mySocket.rcvdBuff[i] = 0;
+        }
+
+        //sender clear
+        mySocket.lastWritten = 127;
+        mySocket.lastAck = 127;
+        mySocket.lastSent = 127;
+
+        //receiver clear, maintain next expected to keep seq synced
+        mySocket.lastRead = 127;
+        mySocket.lastRcvd = 127;
+
+        call socketHash.remove(fd);
+        call socketHash.insert(fd, mySocket);
+    }
+
+
    /**
     * Write to the socket from a buffer. This data will eventually be
     * transmitted through your TCP implimentation.
@@ -669,15 +694,15 @@ implementation {
     */
    command uint16_t Transport.read(socket_t fd)
    {
-        int i, j, k, buffUsed;
+       
+        int i, j, k;
         int count = 0;
         int printCount = 1;
         socket_store_t mySocket;
-        uint16_t tempNextVal;
-        uint16_t tempNextSwap;
-        uint16_t top;
-        uint16_t bot;
-        uint16_t completeNum;
+        char tempMsg;
+        uint8_t nextSeq;
+        uint8_t prevSeq;
+        uint8_t tempSeq;
         bool found = FALSE; 
 
         if (call socketHash.contains(fd))
@@ -697,78 +722,118 @@ implementation {
             printf("rcvdBuff[%d] = %d\n", i, mySocket.rcvdBuff[i]);
         }
         */
-        //Find amount of space is used in rcvdBuff
-        if (mySocket.lastRcvd >= mySocket.lastRead)
-            buffUsed = (mySocket.lastRcvd - mySocket.lastRead) + 1;
-        
-        else if (mySocket.lastRcvd < mySocket.lastRead)
-            buffUsed = 129 - (mySocket.lastRead - mySocket.lastRcvd);
-
-        //printf("Last Read: %d\n", mySocket.lastRead);
-
-        //Check from lastRead for the next in sequence. Swap the next value with
-        //the buffer space in front of lastRead if not already there and update last read.
-        for (i = 1; i < buffUsed; i += 2)
+        nextSeq = mySocket.nextExpected;
+        for (i = (mySocket.lastRead)%128; i != mySocket.lastRcvd; i += 2)
         {
-            bot = mySocket.rcvdBuff[(mySocket.lastRead - 1)%128];
-            top = mySocket.rcvdBuff[(mySocket.lastRead)%128];
-            top <<= 8;
-            completeNum = top | bot;
-            //printf("CompleteNum = %d    Bot = %d    Top = %d\n", completeNum, bot, top);
-
-
-            tempNextVal = completeNum + 1;
-            //for(j = 1; j < buffUsed; j++)
-            //check within the buff for matching the next expected result
-            //if found, count++ and lastRead++, then print the number
-            for(j = (mySocket.lastRead + 1)%128; j != mySocket.lastRcvd ; j += 2)
+            i = i%128;
+            //find the prev and next expected seq numbers
+            //nextSeq = (prevSeq + 1)% 128;
+            dbg("general", "Next expected: %d\n", nextSeq);
+            //if next expected is next in buff, update last read
+            if (nextSeq == mySocket.rcvdBuff[(mySocket.lastRead + 2)%128])
             {
-                bot = mySocket.rcvdBuff[j];
-                top = mySocket.rcvdBuff[j+1];
-                top <<= 8;
-                completeNum = top | bot;
-                //dbg("general", "Num: %d,    Temp:%d\n", completeNum, tempNextVal);
-                if (completeNum == tempNextVal )
-                {
-                    k = j;
-
-                    if (k == (mySocket.lastRead + 1))
-                    {
-                        found = TRUE;
-                    }
-
-                    else if (k != (mySocket.lastRead + 1) )
-                    {
-                        //bottom half swap
-                        tempNextSwap = mySocket.rcvdBuff[(mySocket.lastRead + 1)%128];
-                        mySocket.rcvdBuff[(mySocket.lastRead + 1)%128] = bot;
-                        mySocket.rcvdBuff[k] = tempNextSwap;
-                        //top half swap
-                        tempNextSwap = mySocket.rcvdBuff[(mySocket.lastRead + 2)%128];
-                        mySocket.rcvdBuff[(mySocket.lastRead + 2)%128] = (top >> 8);
-                        mySocket.rcvdBuff[k+1] = tempNextSwap;
-                        found = TRUE;
-                    }
-                }
-                if (found)
-                {
-                    printf("%d, ", tempNextVal);
-                    if ( (printCount % 7 ) == 0|| ((j + 1) == mySocket.lastRcvd))
-                        printf("\n");
-                    mySocket.lastRead =  (mySocket.lastRead+2)%128; 
-                    count++;
-                    printCount++;
-                    break;
-                }
-               
+                found = TRUE;
+                dbg("general", "nextSeq: %d     buff: %d    i: %d    lastRcvd:%d\n", nextSeq, mySocket.rcvdBuff[i], i, mySocket.lastRcvd);
             }
-            if (!found)
+                
+                
+            //else parse through buffer to find where the next is, if it exists
+            else
+            {
+                for(j = (mySocket.lastRead + 2)%128; j != mySocket.lastRcvd; j += 2)
+                {
+                    dbg("general", "nextSeq: %d     buff: %d    j: %d    lastRcvd:%d\n", nextSeq, mySocket.rcvdBuff[j], j, mySocket.lastRcvd);
+                    if (nextSeq == mySocket.rcvdBuff[j])
+                    {
+                        found = TRUE;
+                        tempSeq = mySocket.rcvdBuff[j];
+                        tempMsg = mySocket.rcvdBuff[j-1];
+                        mySocket.rcvdBuff[j] = mySocket.rcvdBuff[(mySocket.lastRead + 2)%128];
+                        mySocket.rcvdBuff[j-1] = mySocket.rcvdBuff[(mySocket.lastRead + 1)%128];
+                        mySocket.rcvdBuff[(mySocket.lastRead + 2)%128] = tempSeq;
+                        mySocket.rcvdBuff[(mySocket.lastRead + 1)%128] = tempMsg;
+                    }
+                }   
+            }
+
+            if (found)
+            {
+                printf("True tho\n");
+                nextSeq++;
+                //if previous message is over, set cmd to true
+                if (mySocket.endMsg == TRUE)
+                {
+                    mySocket.endMsg = FALSE;
+                    mySocket.cmd = TRUE;
+                }
+
+                //if cmd is true, record it
+                if (mySocket.cmd == TRUE)
+                {
+                    mySocket.cmdLastWritten = ((mySocket.cmdLastWritten + 1) % 8);
+
+                    //if next char to cmdBuff is ' ', then cmd is done recording.
+                    //must set enum related to command
+                    if (mySocket.rcvdBuff[mySocket.lastRead + 1] == ' ')
+                    {
+                        if (strcmp(mySocket.cmdBuff,"hello") == 0)
+                            mySocket.commandT = 1;
+                        
+                        if (strcmp(mySocket.cmdBuff,"msg") == 0)
+                            mySocket.commandT = 2;
+
+                        if (strcmp(mySocket.cmdBuff,"whisper") == 0)
+                            mySocket.commandT = 3;
+
+                        if (strcmp(mySocket.cmdBuff,"listusr") == 0)
+                            mySocket.commandT = 4;
+
+                        mySocket.cmd = FALSE;
+                    }
+
+                    //if next char is not space, continue recording
+                    else mySocket.cmdBuff[mySocket.cmdLastWritten] = mySocket.rcvdBuff[mySocket.lastRead + 1];
+                }
+
+                //if not at end of msg, and not recording cmd, record msg
+                if (mySocket.endMsg == FALSE && mySocket.cmd == FALSE)
+                {
+                    mySocket.msgLastWritten = ((mySocket.msgLastWritten + 1) % 64);
+                    mySocket.message[mySocket.msgLastWritten] = mySocket.rcvdBuff[mySocket.lastRead + 1];
+                    
+                    //if the entire message was received
+                    if (mySocket.message[mySocket.msgLastWritten] ==  "\n"
+                        && mySocket.message[mySocket.msgLastWritten - 1] ==  "\r")
+                    {
+                        for(k = (mySocket.msgLastEnd + 1) % 64; k <= mySocket.msgLastWritten; k++)
+                        {
+                            printf(mySocket.message[k%64]);
+                            if (mySocket.message[k%64] == "\n")
+                            {
+                                //mySocket.msgLastEnd = k%64;
+                                mySocket.endMsg = TRUE;
+                                call socketHash.remove(fd);
+                                call socketHash.insert(fd, mySocket);
+                                call Transport.runCommand(fd);
+                                break;
+                            }
+                        }
+                        
+                    }
+                }
+
+                mySocket.lastRead = ((mySocket.lastRead + 2) % 128);
+                count++;
+                printCount++;
+            }
+
+            else
             {
                 dbg("general", "Next was not found in buff\n");
                 break;
             }
-            
         }
+        
         call socketHash.remove(fd);
         call socketHash.insert(fd, mySocket);
 
@@ -777,6 +842,39 @@ implementation {
 
    }
 
+    command void Transport.runCommand(socket_t fd)
+    {
+        int i, j;
+        socket_store_t mySocket = call socketHash.get(fd);
+
+        switch(mySocket.commandT)
+        {
+            case 0:
+                j = 0;
+                for (i = (mySocket.msgLastEnd + 1)%64; i != (mySocket.msgLastWritten - 1)%64; i++)
+                {
+                    mySocket.name[j%16] = mySocket.message[i%64];
+                    j++;
+                }
+                mySocket.msgLastEnd = mySocket.msgLastWritten;
+                printf("hello %c", mySocket.name);
+
+            break;
+
+            case 1:
+
+            break;
+
+            case 2:
+
+            break;
+
+            case 3:
+
+            break;
+        
+        }
+    }
 
    /**
     * This will pass the packet so you can handle it internally. 
@@ -815,8 +913,10 @@ implementation {
                     mySocket.dest.port = tcpPack -> srcPort;
                     mySocket.dest.addr = package -> src; 
                     mySocket.seqStart = tcpPack -> seq;
-                    mySocket.nextExpected =  tcpPack -> seq - mySocket.seqStart;
+                    mySocket.nextExpected = mySocket.seqStart;
                     dbg("general", "SrcPort: %d\n", tcpPack -> srcPort);
+                    dbg("general", "SeqStart: %d\n", mySocket.seqStart);
+                    dbg("general", "Next expected: %d\n", mySocket.nextExpected);
                     tcpPack->seq = tcpPack->seq + 1;
                     mySocket.state = SYN_RCVD;
                     call socketHash.insert(fileD, mySocket);
@@ -835,15 +935,7 @@ implementation {
                 
             
                 dbg("general", "SYN_ACK Received\n");
-                /*
-                if (rttFound == FALSE)
-                {
-                    call Transport.updateRTT();
-                    rttFound = TRUE;
-                }
-                //dbg("general", "RTT: %d\n", rtt);
-                */
-
+             
                 //we have to find the fd which contains the port
                 fileD = findPort(tcpPack -> destPort);
                 dbg("general", "FileD: %d   Port: %d\n", fileD, tcpPack->destPort);
@@ -882,12 +974,13 @@ implementation {
                     call Transport.buildPack(&mySocket, confirmedTable, 3, SOCKET_BUFFER_SIZE);
         
                     dbg("general", "ACK Sent, Socket State: %d \n", mySocket.state);
-
-                    for (i = 0; i < 3; i++)
-                    {
-                        if (mySocket.state == 2)
-                            call Transport.dataSend(fileD);
-                    }
+                    call Transport.dataSend(fileD);
+                    //
+                   // for (i = 0; i < 3; i++)
+                   // {
+                   //     if (mySocket.state == 2)
+                            
+                   // }
                        
                    
                     //After ACK, assume it got the message and start sending data. 
@@ -1035,22 +1128,21 @@ implementation {
    command error_t Transport.connect(socket_t fd, socket_addr_t * addr)
    {
         socket_store_t synSocket;
-        int seq = call Random.rand16(); //this is how tcp picks sequence numbers, at random instead of sequentially
 
         if (call socketHash.contains(fd))
         {
             synSocket = call socketHash.get(fd);
             synSocket.dest.port = addr -> port;
             synSocket.dest.addr = addr -> addr;
-            synSocket.seqStart = seq;
+            //synSocket.seqStart = seq;
             //make a tcp packet, then add the header of the "IP" layer
             dbg("general", "Getting TCP Package Ready\n");
-            makeTCPPack(&tcpPayload, synSocket.src, addr->port, seq, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
+            makeTCPPack(&tcpPayload, synSocket.src, addr->port, synSocket.seqStart, 1, 0, tcpPayload.payload, sizeof(tcpPayload.payload));
             makePack(&sendPackage, TOS_NODE_ID, synSocket.dest.addr, MAX_TTL, PROTOCOL_TCP, call sequencer.getSeq(), &tcpPayload, sizeof(tcpPayload));
             call Sender.send(sendPackage, getTableIndex(&confirmedTable, synSocket.dest.addr).hopTo);
             //rttStart = call TimeoutTimer.getNow();
             //dbg("general", "Starting rtt\n");
-            dbg("general", "TCP Package Sent. Seq: %d\n",call sequencer.getSeq());
+            dbg("general", "TCP Package Sent. Seq: %d   TCPSeq: %d\n",call sequencer.getSeq(), synSocket.seqStart);
             call sequencer.updateSeq();
             synSocket.state = SYN_SENT;
             call socketHash.remove(fd);

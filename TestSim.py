@@ -165,7 +165,7 @@ def main():
     s.setAppServer(1);
     s.runTime(10);
     #s.testClient(5, 1, 2, 1, 100);
-    s.logIn(5, 3,"mabrey\r\n")
+    s.logIn(5, 3,"hello mabrey\r\n")
     s.runTime(10);
     s.runTime(1000);
 

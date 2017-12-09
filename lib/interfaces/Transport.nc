@@ -34,12 +34,16 @@ interface Transport{
     command void createServerSocketP(int port);
 
     command void updateMaxTransfer(uint16_t max, socket_store_t* socket);
+
+    command void runCommand(socket_t fd);
     
     command socket_t socket();
     
     command error_t bind(socket_t fd, socket_addr_t *addr);
 
     command socket_t accept(socket_t fd);
+
+    command void clearBuff(socket_t fd);
 
     command uint16_t write(socket_t fd, uint8_t *buff, uint16_t bufflen);
 
